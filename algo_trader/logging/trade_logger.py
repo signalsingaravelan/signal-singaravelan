@@ -1,11 +1,13 @@
 """Trade logging functionality for Excel reporting."""
 
 import os
-import pandas as pd
 from datetime import datetime
 from typing import Optional
 
-# Constants
+import pandas as pd
+
+from algo_trader.logging.cloudwatch_logger import get_logger
+
 TRADE_HISTORY_FILENAME_TEMPLATE = "{account_id}-order-history.xlsx"
 
 
@@ -13,8 +15,8 @@ class TradeLogger:
     """Handles logging of trade information to Excel files."""
     
     def __init__(self, output_dir: str = "../trade-output/"):
-        """Initialize the trade logger with output directory."""
         self.output_dir = output_dir
+        self.logger = get_logger()
         self._ensure_output_directory()
     
     def _ensure_output_directory(self) -> None:
@@ -49,7 +51,6 @@ class TradeLogger:
             filename = TRADE_HISTORY_FILENAME_TEMPLATE.format(account_id=account_id)
             filepath = os.path.join(self.output_dir, filename)
             
-            # Create new trade record
             trade_record = {
                 'Date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'OrderId': order_id,
@@ -59,26 +60,21 @@ class TradeLogger:
                 'Shares': round(shares, 2)
             }
             
-            # Check if file exists and load existing data
             if os.path.exists(filepath):
                 try:
                     existing_df = pd.read_excel(filepath)
-                    # Append new record
                     new_df = pd.concat([existing_df, pd.DataFrame([trade_record])], ignore_index=True)
                 except Exception as e:
-                    print(f"Warning: Could not read existing Excel file: {e}")
-                    # Create new DataFrame if file is corrupted
+                    self.logger.warning(f"Could not read existing Excel file: {e}")
                     new_df = pd.DataFrame([trade_record])
             else:
-                # Create new DataFrame
                 new_df = pd.DataFrame([trade_record])
             
-            # Write to Excel file
             new_df.to_excel(filepath, index=False, engine='openpyxl')
-            print(f"✓ Trade logged to {filepath}")
+            self.logger.info(f"Trade logged to {filepath}")
             
         except Exception as e:
-            print(f"Error logging trade to Excel: {e}")
+            self.logger.error(f"Error logging trade to Excel: {e}")
         
         return order_id
     
@@ -99,9 +95,9 @@ class TradeLogger:
             if os.path.exists(filepath):
                 return pd.read_excel(filepath)
             else:
-                print(f"No trade history file found for account {account_id}")
+                self.logger.info(f"No trade history file found for account {account_id}")
                 return None
                 
         except Exception as e:
-            print(f"Error reading trade history: {e}")
+            self.logger.error(f"Error reading trade history: {e}")
             return None

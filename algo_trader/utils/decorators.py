@@ -1,8 +1,7 @@
-"""Utility functions and decorators."""
+"""Utility decorators."""
 
 import functools
 import time
-from enum import Enum
 
 
 def retry(max_attempts=3, delay=2, backoff=2):
@@ -24,10 +23,3 @@ def retry(max_attempts=3, delay=2, backoff=2):
             raise Exception(f"{func.__name__} failed after {max_attempts} retries")
         return wrapper
     return decorator
-
-
-class Signal(Enum):
-    """Trading signal enumeration."""
-    BULLISH = 1
-    BEARISH = 2
-    NEUTRAL = 3

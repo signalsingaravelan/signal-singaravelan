@@ -1,13 +1,17 @@
 """IBKR Web API client for trading operations."""
 
-import json
-import requests
 import urllib3
-import yfinance as yf
 from typing import Optional
 
-from config import BASE_URL, VERIFY_SSL, MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF
-from utils import retry
+import requests
+import yfinance as yf
+
+from algo_trader.logging import get_logger
+from algo_trader.utils.config import (
+    BASE_URL, VERIFY_SSL, MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF
+)
+from algo_trader.utils.decorators import retry
+
 
 class IBKRClient:
     """Interactive Brokers Web API client."""
@@ -16,6 +20,7 @@ class IBKRClient:
         self.session = requests.Session()
         self.session.verify = VERIFY_SSL
         self._account_id: Optional[str] = None
+        self.logger = get_logger()
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
     @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
@@ -28,7 +33,7 @@ class IBKRClient:
         if not is_authenticated:
             raise Exception("Not authenticated with IBKR Web API")
         
-        print("✓ Authenticated with IBKR Web API")
+        self.logger.info("Authenticated with IBKR Web API")
         return True
     
     @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
@@ -67,41 +72,37 @@ class IBKRClient:
     def place_sell_order(self, account_id: str, conid: int, quantity: int) -> None:
         """Place a sell market order."""
         payload = {
-            "orders": [
-                {
-                    "conid": conid,
-                    "secType": "STK",
-                    "orderType": "MKT",
-                    "side": "SELL",
-                    "quantity": quantity,
-                    "tif": "DAY",
-                    "exchange": "SMART",
-                    "currency": "USD"
-                }
-            ]
+            "orders": [{
+                "conid": conid,
+                "secType": "STK",
+                "orderType": "MKT",
+                "side": "SELL",
+                "quantity": quantity,
+                "tif": "DAY",
+                "exchange": "SMART",
+                "currency": "USD"
+            }]
         }
-        self.place_market_order(account_id, payload)
+        self._place_market_order(account_id, payload)
 
     @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
-    def place_buy_order(self, account_id: str, conid: int, cashQuantity: int) -> None:
+    def place_buy_order(self, account_id: str, conid: int, cash_quantity: int) -> None:
         """Place a buy market order using cash quantity."""
         payload = {
-            "orders": [
-                {
-                    "conid": conid,
-                    "secType": "STK",
-                    "orderType": "MKT",
-                    "side": "BUY",
-                    "cashQty": cashQuantity,
-                    "tif": "DAY",
-                    "exchange": "SMART",
-                    "currency": "USD"
-                }
-            ]
+            "orders": [{
+                "conid": conid,
+                "secType": "STK",
+                "orderType": "MKT",
+                "side": "BUY",
+                "cashQty": cash_quantity,
+                "tif": "DAY",
+                "exchange": "SMART",
+                "currency": "USD"
+            }]
         }
-        self.place_market_order(account_id, payload)              
+        self._place_market_order(account_id, payload)
 
-    def place_market_order(self, account_id: str, payload: dict) -> None:
+    def _place_market_order(self, account_id: str, payload: dict) -> None:
         """Place a market order with the given payload."""
         response = self.session.post(
             f"{BASE_URL}/iserver/account/{account_id}/orders",
@@ -110,12 +111,10 @@ class IBKRClient:
         response.raise_for_status()
         
         result = response.json()
-        print(f"Order response: {result}")
+        self.logger.info(f"Order response: {result}")
         
-        # Handle order confirmations
         if isinstance(result, list) and "id" in result[0]:
-            confirm_id = result[0]["id"]
-            self._confirm_order(confirm_id)
+            self._confirm_order(result[0]["id"])
     
     @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
     def _confirm_order(self, confirm_id: str) -> None:
@@ -125,7 +124,7 @@ class IBKRClient:
             json={"confirmed": True}
         )
         response.raise_for_status()
-        print("✓ Order confirmed")
+        self.logger.info("Order confirmed")
 
 
 class MarketDataProvider:

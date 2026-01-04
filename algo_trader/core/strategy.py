@@ -1,6 +1,7 @@
 """Trading strategy implementation."""
 
-from utils import Signal
+from algo_trader.utils.enums import Signal
+
 
 class TradingStrategy:
     """Simple trading strategy that returns market signals."""

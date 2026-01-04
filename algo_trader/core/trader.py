@@ -1,10 +1,10 @@
 """Main trading execution logic."""
 
-from config import SYMBOL, TQQQ_CONTRACT_ID, MAX_PER_ORDER
-from ibkr_client import IBKRClient, MarketDataProvider
-from strategy import TradingStrategy
-from trade_logger import TradeLogger
-from utils import Signal
+from algo_trader.clients import IBKRClient, MarketDataProvider
+from algo_trader.core.strategy import TradingStrategy
+from algo_trader.logging import get_logger, TradeLogger
+from algo_trader.utils.config import SYMBOL, TQQQ_CONTRACT_ID, MAX_PER_ORDER
+from algo_trader.utils.enums import Signal
 
 
 class Trader:
@@ -15,69 +15,65 @@ class Trader:
         self.market_data = MarketDataProvider()
         self.strategy = TradingStrategy()
         self.trade_logger = TradeLogger()
+        self.logger = get_logger()
     
     def execute_trade(self) -> None:
         """Execute the main trading logic."""
         try:
-            # Authenticate and get account info
             self.client.check_auth()
             account_id = self.client.get_account_id()
             
-            # Get market signal and current market data
+            # Initialize CloudWatch with account-specific log group
+            self.logger.initialize_cloudwatch(account_id)
+            self.logger.info("----------------BEGIN----------------")
+            
             signal = self.strategy.get_signal()
-            print(f"Market signal: {signal.name}")
+            self.logger.info(f"Market signal: {signal.name}")
             
             price = self.market_data.get_price(SYMBOL)
             current_position = self.client.get_position(account_id, int(TQQQ_CONTRACT_ID))
             
-            print(f"{SYMBOL} Price: ${price:.2f}")
-            print(f"Current Position: {current_position} shares")
+            self.logger.info(f"{SYMBOL} Price: ${price:.2f}")
+            self.logger.info(f"Current Position: {current_position} shares")
             
-            # Execute trading logic based on signal
             if signal == Signal.BULLISH:
                 self._handle_bullish_signal(account_id, price)
-            elif signal == Signal.BEARISH:
-                self._handle_bearish_signal(account_id, current_position)
             else:
-                print("Neutral signal - no action taken")
+                self._handle_bearish_or_neutral_signal(account_id, current_position)
                 
         except Exception as e:
-            print(f"Trade execution failed: {e}")
+            self.logger.error(f"Trade execution failed: {e}")
             raise
+        finally:
+            self.logger.info("-----------------END-----------------")
     
     def _handle_bullish_signal(self, account_id: str, price: float) -> None:
         """Handle bullish signal by buying the symbol."""
         available_cash = self.client.get_available_cash(account_id)
-        print(f"Available cash: ${available_cash:.2f}")
+        self.logger.info(f"Available cash: ${available_cash:.2f}")
         
         if available_cash > 0:
             cash_amount = min(available_cash, MAX_PER_ORDER)
-            print(f"Placing BUY order for ${cash_amount:.2f} of {SYMBOL}")
+            self.logger.info(f"Placing BUY order for ${cash_amount:.2f} of {SYMBOL}")
             
-            # Calculate shares for fractional trading
             shares = cash_amount / price
             
-            # Place order and log the trade
             self.client.place_buy_order(account_id, TQQQ_CONTRACT_ID, cash_amount)
             self.trade_logger.log_trade(account_id, "Buy", SYMBOL, cash_amount, shares)
         else:
-            print("Insufficient cash for purchase")
+            self.logger.warning("Insufficient cash for purchase")
     
-    def _handle_bearish_signal(self, account_id: str, current_position: float) -> None:
-        """Handle bearish signal by selling the symbol."""
+    def _handle_bearish_or_neutral_signal(self, account_id: str, current_position: float) -> None:
+        """Handle bearish or neutral signal by selling the symbol."""
         if current_position > 0:
             quantity = int(current_position)
-            print(f"Placing SELL order for {quantity} shares of {SYMBOL}")
+            self.logger.info(f"Placing SELL order for {quantity} shares of {SYMBOL}")
             
-            # Calculate approximate dollar amount for logging
             price = self.market_data.get_price(SYMBOL)
             dollar_amount = quantity * price
-            
-            # Use the actual position quantity (supports fractional shares)
             shares = current_position
             
-            # Place order and log the trade
             self.client.place_sell_order(account_id, TQQQ_CONTRACT_ID, quantity)
             self.trade_logger.log_trade(account_id, "Sell", SYMBOL, dollar_amount, shares)
         else:
-            print(f"No {SYMBOL} position to sell")
+            self.logger.info(f"No {SYMBOL} position to sell")
