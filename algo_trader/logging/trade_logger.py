@@ -7,16 +7,18 @@ from typing import Optional
 import pandas as pd
 
 from algo_trader.logging.cloudwatch_logger import get_logger
+from algo_trader.notifications import NotificationService
 
 TRADE_HISTORY_FILENAME_TEMPLATE = "{account_id}-order-history.xlsx"
 
 
 class TradeLogger:
-    """Handles logging of trade information to Excel files."""
+    """Handles logging of trade information to Excel files and notifications."""
     
     def __init__(self, output_dir: str = "../trade-output/"):
         self.output_dir = output_dir
         self.logger = get_logger()
+        self.notification_service = NotificationService()
         self._ensure_output_directory()
     
     def _ensure_output_directory(self) -> None:
@@ -73,6 +75,11 @@ class TradeLogger:
             new_df.to_excel(filepath, index=False, engine='openpyxl')
             self.logger.info(f"Trade logged to {filepath}")
             
+            # Send notifications
+            self.notification_service.send_trade_notification(
+                account_id, action, symbol, dollar_amount, shares, order_id
+            )
+            
         except Exception as e:
             self.logger.error(f"Error logging trade to Excel: {e}")
         
@@ -101,3 +108,7 @@ class TradeLogger:
         except Exception as e:
             self.logger.error(f"Error reading trade history: {e}")
             return None
+    
+    def test_notifications(self) -> None:
+        """Send test notifications to verify configuration."""
+        self.notification_service.send_test_notification()

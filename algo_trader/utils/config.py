@@ -17,3 +17,14 @@ RETRY_BACKOFF = 2
 # CloudWatch Configuration
 CLOUDWATCH_LOG_GROUP = "signal-singaravelan"
 CLOUDWATCH_REGION = "us-east-1"
+
+# Notification Configuration
+# Email settings (using AWS SES)
+EMAIL_FROM = "signalsingaravelan@gmail.com"  # Replace with your verified SES email
+EMAIL_TO = "asubbu87@gmail.com"        # Replace with your email
+EMAIL_REGION = "us-east-1"
+
+# Telegram settings
+TELEGRAM_CHAT_ID = "-1003650035424"
+SECRETS_MANAGER_SECRET_NAME = "SignalSingaravelanSecrets"
+SECRETS_MANAGER_REGION = "us-east-1"

@@ -2,7 +2,6 @@
 
 from enum import Enum
 
-
 class Signal(Enum):
     """Trading signal enumeration."""
     BULLISH = 1
