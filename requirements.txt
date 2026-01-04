@@ -1,3 +1,5 @@
 requests>=2.31.0
 yfinance>=0.2.18
 urllib3>=2.0.0
+pandas>=2.0.0
+openpyxl>=3.1.0

@@ -3,6 +3,7 @@
 from config import SYMBOL, TQQQ_CONTRACT_ID, MAX_PER_ORDER
 from ibkr_client import IBKRClient, MarketDataProvider
 from strategy import TradingStrategy
+from trade_logger import TradeLogger
 from utils import Signal
 
 
@@ -13,6 +14,7 @@ class Trader:
         self.client = IBKRClient()
         self.market_data = MarketDataProvider()
         self.strategy = TradingStrategy()
+        self.trade_logger = TradeLogger()
     
     def execute_trade(self) -> None:
         """Execute the main trading logic."""
@@ -51,7 +53,13 @@ class Trader:
         if available_cash > 0:
             cash_amount = min(available_cash, MAX_PER_ORDER)
             print(f"Placing BUY order for ${cash_amount:.2f} of {SYMBOL}")
+            
+            # Calculate shares for fractional trading
+            shares = cash_amount / price
+            
+            # Place order and log the trade
             self.client.place_buy_order(account_id, TQQQ_CONTRACT_ID, cash_amount)
+            self.trade_logger.log_trade(account_id, "Buy", SYMBOL, cash_amount, shares)
         else:
             print("Insufficient cash for purchase")
     
@@ -60,6 +68,16 @@ class Trader:
         if current_position > 0:
             quantity = int(current_position)
             print(f"Placing SELL order for {quantity} shares of {SYMBOL}")
+            
+            # Calculate approximate dollar amount for logging
+            price = self.market_data.get_price(SYMBOL)
+            dollar_amount = quantity * price
+            
+            # Use the actual position quantity (supports fractional shares)
+            shares = current_position
+            
+            # Place order and log the trade
             self.client.place_sell_order(account_id, TQQQ_CONTRACT_ID, quantity)
+            self.trade_logger.log_trade(account_id, "Sell", SYMBOL, dollar_amount, shares)
         else:
             print(f"No {SYMBOL} position to sell")
