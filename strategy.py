@@ -2,17 +2,16 @@
 
 from utils import Signal
 
-
 class TradingStrategy:
-    """Simple trading strategy that returns signals."""
+    """Simple trading strategy that returns market signals."""
     
     def get_signal(self) -> Signal:
         """
-        Get trading signal based on market analysis.
+        Get the current market signal.
         
-        Currently returns BULLISH as a placeholder.
-        This can be extended with actual market analysis logic.
+        This is a placeholder implementation that always returns BULLISH.
+        In a real implementation, this would analyze market data, technical
+        indicators, or other factors to determine the appropriate signal.
         """
         # TODO: Implement actual strategy logic
-        # This could include technical indicators, fundamental analysis, etc.
         return Signal.BULLISH

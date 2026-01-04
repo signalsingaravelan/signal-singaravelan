@@ -1,111 +1,139 @@
-"""Interactive Brokers Web API client using ibind."""
+"""IBKR Web API client for trading operations."""
 
+import json
+import requests
+import urllib3
 import yfinance as yf
-from ibind import IbkrWsKey, IbkrClient
 from typing import Optional
 
-from config import BASE_URL, VERIFY_SSL
+from config import BASE_URL, VERIFY_SSL, MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF
 from utils import retry
 
-
 class IBKRClient:
-    """Simplified client for interacting with IBKR Web API using ibind."""
+    """Interactive Brokers Web API client."""
     
     def __init__(self):
-        # Initialize ibind client
-        self.client = IbkrClient(
-            base_url=BASE_URL,
-            verify=VERIFY_SSL
-        )
+        self.session = requests.Session()
+        self.session.verify = VERIFY_SSL
         self._account_id: Optional[str] = None
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
-    @retry()
-    def check_auth(self) -> None:
+    @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
+    def check_auth(self) -> bool:
         """Check if authenticated with IBKR Web API."""
-        auth_status = self.client.auth_status()
-        if not auth_status.get("authenticated", False):
+        response = self.session.get(f"{BASE_URL}/iserver/auth/status")
+        response.raise_for_status()
+        
+        is_authenticated = response.json().get("authenticated", False)
+        if not is_authenticated:
             raise Exception("Not authenticated with IBKR Web API")
-        print("Authenticated with IBKR Web API")
+        
+        print("✓ Authenticated with IBKR Web API")
+        return True
     
-    @retry()
+    @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
     def get_account_id(self) -> str:
-        """Get the first available account ID."""
-        if self._account_id is None:
-            accounts = self.client.accounts()
-            self._account_id = accounts["accounts"][0]
+        """Get the primary account ID."""
+        if self._account_id:
+            return self._account_id
+            
+        response = self.session.get(f"{BASE_URL}/iserver/accounts")
+        response.raise_for_status()
+        
+        self._account_id = response.json()["accounts"][0]
         return self._account_id
     
-    @retry()
+    @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
     def get_available_cash(self, account_id: str) -> float:
-        """Get available cash for the account."""
-        summary = self.client.account_summary(account_id)
-        print(f"Account summary received")
-        return float(summary["availableFunds"])
-    
-    @retry()
-    def get_position(self, account_id: str, conid: int) -> float:
-        """Get position size for a specific contract."""
-        positions = self.client.portfolio_positions(account_id, page_id=0)
+        """Get available cash for trading."""
+        response = self.session.get(f"{BASE_URL}/iserver/account/{account_id}/summary")
+        response.raise_for_status()
         
-        for position in positions:
+        data = response.json()
+        return float(data["availableFunds"])
+    
+    @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
+    def get_position(self, account_id: str, conid: int) -> float:
+        """Get current position for a given contract ID."""
+        response = self.session.get(f"{BASE_URL}/portfolio/{account_id}/positions/0")
+        response.raise_for_status()
+        
+        for position in response.json():
             if position["conid"] == conid:
                 return float(position["position"])
         return 0.0
     
-    @retry()
-    def get_price(self, symbol: str) -> float:
-        """Get the latest price for a symbol using Yahoo Finance."""
-        ticker = yf.Ticker(symbol)
-        history = ticker.history(period="1d")
-        return float(history["Close"].iloc[-1])
-    
-    @retry()
-    def place_market_order(self, account_id: str, conid: int, side: str, quantity: int) -> None:
-        """Place a market order."""
-        order = {
-            "conid": conid,
-            "secType": "STK",
-            "orderType": "MKT",
-            "side": side,
-            "quantity": quantity,
-            "tif": "DAY",
-            "exchange": "SMART",
-            "currency": "USD"
+    @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
+    def place_sell_order(self, account_id: str, conid: int, quantity: int) -> None:
+        """Place a sell market order."""
+        payload = {
+            "orders": [
+                {
+                    "conid": conid,
+                    "secType": "STK",
+                    "orderType": "MKT",
+                    "side": "SELL",
+                    "quantity": quantity,
+                    "tif": "DAY",
+                    "exchange": "SMART",
+                    "currency": "USD"
+                }
+            ]
         }
+        self.place_market_order(account_id, payload)
+
+    @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
+    def place_buy_order(self, account_id: str, conid: int, cashQuantity: int) -> None:
+        """Place a buy market order using cash quantity."""
+        payload = {
+            "orders": [
+                {
+                    "conid": conid,
+                    "secType": "STK",
+                    "orderType": "MKT",
+                    "side": "BUY",
+                    "cashQty": cashQuantity,
+                    "tif": "DAY",
+                    "exchange": "SMART",
+                    "currency": "USD"
+                }
+            ]
+        }
+        self.place_market_order(account_id, payload)              
+
+    def place_market_order(self, account_id: str, payload: dict) -> None:
+        """Place a market order with the given payload."""
+        response = self.session.post(
+            f"{BASE_URL}/iserver/account/{account_id}/orders",
+            json=payload
+        )
+        response.raise_for_status()
         
-        result = self.client.place_orders(account_id, [order])
+        result = response.json()
         print(f"Order response: {result}")
         
-        # Handle order confirmations using ibind's built-in methods
+        # Handle order confirmations
         if isinstance(result, list) and "id" in result[0]:
             confirm_id = result[0]["id"]
             self._confirm_order(confirm_id)
     
-    @retry()
-    def lookup_contract(self, symbol: str) -> int:
-        """Look up contract ID (conid) for a given symbol."""
-        contracts = self.client.contract_search(symbol)
-        
-        # Look for exact symbol match for stocks
-        for contract in contracts:
-            if (contract.get("symbol") == symbol and 
-                contract.get("secType") == "STK" and
-                contract.get("exchange") == "SMART"):
-                conid = contract["conid"]
-                print(f"Found conid {conid} for {symbol}")
-                return conid
-        
-        # If no exact match, return the first stock result
-        for contract in contracts:
-            if contract.get("secType") == "STK":
-                conid = contract["conid"]
-                print(f"Found conid {conid} for {symbol} (first stock match)")
-                return conid
-        
-        raise Exception(f"No contract found for symbol {symbol}")
-    
-    @retry()
+    @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
     def _confirm_order(self, confirm_id: str) -> None:
         """Confirm an order that requires confirmation."""
-        self.client.reply_to_question(confirm_id, confirmed=True)
-        print("Order confirmed")
+        response = self.session.post(
+            f"{BASE_URL}/iserver/reply/{confirm_id}",
+            json={"confirmed": True}
+        )
+        response.raise_for_status()
+        print("✓ Order confirmed")
+
+
+class MarketDataProvider:
+    """Market data provider using Yahoo Finance."""
+    
+    @staticmethod
+    def get_price(symbol: str) -> float:
+        """Get the latest price for a symbol."""
+        ticker = yf.Ticker(symbol)
+        history = ticker.history(period="1d")
+        return history["Close"].iloc[-1]
