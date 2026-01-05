@@ -24,7 +24,7 @@ class Trader:
         self.trade_logger = TradeLogger()
         self.logger = get_logger()
 
-    def is_market_open(self) -> Boolean:
+    def is_market_open(self):
         est = pytz.timezone('US/Eastern')
         current_date = datetime.now(est).date()
         nyse = xcals.get_calendar("XNYS")
@@ -41,7 +41,7 @@ class Trader:
             self.logger.info("----------------BEGIN----------------")
 
             # Check if market is open today
-            if self.is_market_open():
+            if not self.is_market_open():
                 self.logger.info("Market is not open. Exiting.")
                 return
             
