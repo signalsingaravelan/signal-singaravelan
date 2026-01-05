@@ -1,4 +1,4 @@
-# IBKR Trading Client
+# Signal Singaravelan (Trading Bot)
 
 A Python-based trading client for Interactive Brokers with **IBKR Web API** - Direct REST API integration with IBeam gateway.
 
@@ -7,15 +7,9 @@ This application implements automated trading strategies for TQQQ (ProShares Ult
 ## Project Structure
 
 ```
-├── main.py              # Entry point (Web API version)
-├── trader.py            # Main trading orchestration (Web API)
-├── ibkr_client.py       # IBKR Web API client
-├── strategy.py          # Trading strategy implementation
-├── config.py            # Configuration settings
-├── utils.py             # Utility functions and decorators
-├── requirements.txt     # Python dependencies
-├── compose.yaml         # Docker Compose configuration
-├── env.list             # Environment variables
+├── ibeam                # Placeholder folder to add env.list file with environment variables
+├── trader-bot           # Python scripts containig the trading bot
+├── compose.yaml         # Docker Compose configuration for Ibeam & Trader-bot
 └── README.md            # This file
 ```
 
@@ -25,38 +19,25 @@ This application implements automated trading strategies for TQQQ (ProShares Ult
 - Interactive Brokers account
 - **For Web API**: Docker and Docker Compose
 
-## Installation
+## Installation & Usage
 
 1. **Clone the repository and navigate to the project directory**
 
-2. **Install Python dependencies:**
+2. **Create a env.list file under IBeam folder with IBKR Credentials**
+
+3. **Start IBeam server, which acts as a gateway between your application and Interactive Brokers**
    ```bash
-   pip install -r requirements.txt
+   docker build 
+   docker-compose up -d ibeam
    ```
 
-3. **Choose your implementation:**
-
-3a. **Configure your IBKR credentials:**
-   
-   Edit the `env.list` file with your IBKR credentials:
-   ```
-   IBEAM_ACCOUNT=your_ibkr_username
-   IBEAM_PASSWORD=your_ibkr_password
-   ```
-
-3b. **Start the IBeam gateway:**
+4. **One time execution of trading bot:**
    ```bash
-   docker-compose up -d
+   docker build #Needs to run everytime a script change is made
+   docker-compose run --rm trader-bot
    ```
 
-## Usage
-
-### Web API Version
-```bash
-python main.py
-```
-
-Both implementations will:
+For every execution the bot will:
 1. Authenticate with IBKR
 2. Retrieve account information
 3. Get the current market signal
@@ -65,21 +46,6 @@ Both implementations will:
 ## Strategy Customization
 
 The trading strategy is implemented in `strategy.py`. Currently, it returns a simple bullish signal. This needs to be modified. 
-
-## Docker Setup
-
-The included `compose.yaml` configures IBeam, which acts as a gateway between your application and Interactive Brokers:
-
-- **Port 5000**: IBKR Web API
-- **Port 5001**: IBeam web interface
-- **Network mode**: Bridge (required for IBKR IP whitelist)
-
-## Troubleshooting
-
-### Authentication Issues
-- Ensure IBeam container is running: `docker-compose ps`
-- Check IBeam logs: `docker-compose logs ibeam`
-- Verify credentials in `env.list`
 
 ## Disclaimer
 
