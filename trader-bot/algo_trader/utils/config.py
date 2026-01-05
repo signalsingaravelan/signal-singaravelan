@@ -18,6 +18,11 @@ RETRY_BACKOFF = 2
 CLOUDWATCH_LOG_GROUP = "signal-singaravelan"
 CLOUDWATCH_REGION = "us-east-1"
 
+# S3 Configuration
+S3_BUCKET_NAME = "signal-singaravelan"  # Replace with your S3 bucket name
+S3_REGION = "us-east-1"
+S3_KEY_PREFIX = "trade-history/"  # Optional prefix for organizing files
+
 # Notification Configuration
 # Email settings (using AWS SES)
 EMAIL_FROM = "signalsingaravelan@gmail.com"  # Replace with your verified SES email

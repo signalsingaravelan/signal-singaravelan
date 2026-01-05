@@ -1,0 +1,19 @@
+services:
+  ibeam:
+    image: voyz/ibeam
+    container_name: ibeam
+    env_file:
+      - ibeam/env.list
+    ports:
+      - 5000:5000
+      - 5001:5001
+    network_mode: bridge # Required due to clientportal.gw IP whitelist
+    restart: 'no' # Prevents IBEAM_MAX_FAILED_AUTH from being exceeded
+  trader-bot:
+    build: ./trader-bot
+    depends_on:
+      - ibeam
+    network_mode: "service:ibeam"
+    #Uncomment the following 2 lines for running locally using available aws credentials
+    #volumes: 
+    #  - ~/.aws:/root/.aws:ro
