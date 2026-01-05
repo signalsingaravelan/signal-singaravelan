@@ -1,5 +1,12 @@
 """Main trading execution logic."""
 
+import pytz
+import exchange_calendars as xcals
+import pandas as pd
+import numpy as np
+
+from datetime import datetime
+
 from algo_trader.clients import IBKRClient, MarketDataProvider
 from algo_trader.core.strategy import TradingStrategy
 from algo_trader.logging import get_logger, TradeLogger
@@ -16,7 +23,13 @@ class Trader:
         self.strategy = TradingStrategy()
         self.trade_logger = TradeLogger()
         self.logger = get_logger()
-    
+
+    def is_market_open(self) -> Boolean:
+        est = pytz.timezone('US/Eastern')
+        current_date = datetime.now(est).date()
+        nyse = xcals.get_calendar("XNYS")
+        return nyse.is_session(current_date)
+
     def execute_trade(self) -> None:
         """Execute the main trading logic."""
         try:
@@ -26,6 +39,11 @@ class Trader:
             # Initialize CloudWatch with account-specific log group
             self.logger.initialize_cloudwatch(account_id)
             self.logger.info("----------------BEGIN----------------")
+
+            # Check if market is open today
+            if self.is_market_open():
+                self.logger.info("Market is not open. Exiting.")
+                return
             
             signal = self.strategy.get_signal()
             self.logger.info(f"Market signal: {signal.name}")
