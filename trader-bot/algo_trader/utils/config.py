@@ -6,8 +6,7 @@ VERIFY_SSL = False  # self-signed cert
 
 # Trading Configuration
 SYMBOL = "TQQQ"
-TQQQ_CONTRACT_ID = 72539702
-MAX_PER_ORDER = 10
+COMMISSION_TYPE = "TIERED"
 
 # Retry Configuration
 MAX_RETRY_ATTEMPTS = 3

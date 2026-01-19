@@ -106,8 +106,8 @@ class IBKRClient:
         return 0.0
     
     @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
-    def place_sell_order(self, account_id: str, conid: int, quantity: int) -> None:
-        """Place a sell market order."""
+    def place_sell_order(self, account_id: str, conid: int, quantity: int) -> Optional[str]:
+        """Place a sell market order. Returns order ID if available."""
         payload = {
             "orders": [{
                 "conid": conid,
@@ -120,11 +120,11 @@ class IBKRClient:
                 "currency": "USD"
             }]
         }
-        self._place_market_order(account_id, payload)
+        return self._place_market_order(account_id, payload)
 
     @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
-    def place_buy_order(self, account_id: str, conid: int, cash_quantity: int) -> None:
-        """Place a buy market order using cash quantity."""
+    def place_buy_order(self, account_id: str, conid: int, cash_quantity: int) -> Optional[str]:
+        """Place a buy market order using cash quantity. Returns order ID if available."""
         payload = {
             "orders": [{
                 "conid": conid,
@@ -137,10 +137,10 @@ class IBKRClient:
                 "currency": "USD"
             }]
         }
-        self._place_market_order(account_id, payload)
+        return self._place_market_order(account_id, payload)
 
-    def _place_market_order(self, account_id: str, payload: dict) -> None:
-        """Place a market order with the given payload."""
+    def _place_market_order(self, account_id: str, payload: dict) -> Optional[str]:
+        """Place a market order with the given payload. Returns order ID if available."""
         response = self.session.post(
             f"{BASE_URL}/iserver/account/{account_id}/orders",
             json=payload
@@ -150,16 +150,45 @@ class IBKRClient:
         result = response.json()
         self.logger.info(f"Order response: {result}")
         
-        if isinstance(result, list) and "id" in result[0]:
-            self._confirm_order(result[0]["id"])
+        order_id = None
+        
+        if isinstance(result, list) and result:
+            # Check for order_id in the initial response
+            if "order_id" in result[0]:
+                order_id = result[0]["order_id"]
+                self.logger.info(f"Order ID from initial response: {order_id}")
+            
+            # Handle confirmation if needed
+            if "id" in result[0]:
+                confirmation_order_id = self._confirm_order(result[0]["id"])
+                # Use confirmation order_id if we didn't get one from initial response
+                if order_id is None and confirmation_order_id is not None:
+                    order_id = confirmation_order_id
+        
+        return order_id
     
     @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
-    def _confirm_order(self, confirm_id: str) -> None:
-        """Confirm an order that requires confirmation."""
+    def _confirm_order(self, confirm_id: str) -> Optional[str]:
+        """Confirm an order that requires confirmation. Returns order_id if available."""
         response = self.session.post(
             f"{BASE_URL}/iserver/reply/{confirm_id}",
             json={"confirmed": True}
         )
         response.raise_for_status()
+        
+        result = response.json()
+        self.logger.info(f"Order confirmation response: {result}")
+        
+        # Extract order_id from confirmation response
+        order_id = None
+        if isinstance(result, list) and result:
+            if "order_id" in result[0]:
+                order_id = result[0]["order_id"]
+                self.logger.info(f"Order ID from confirmation: {order_id}")
+        elif isinstance(result, dict) and "order_id" in result:
+            order_id = result["order_id"]
+            self.logger.info(f"Order ID from confirmation: {order_id}")
+        
         self.logger.info("Order confirmed")
+        return order_id
 

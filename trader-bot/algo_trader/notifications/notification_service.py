@@ -9,7 +9,7 @@ import boto3
 import requests
 from botocore.exceptions import ClientError
 
-from algo_trader.utils.enums import Severity
+from algo_trader.models import Trade, Severity
 from algo_trader.logging import get_logger
 from algo_trader.utils.config import (
     EMAIL_FROM, EMAIL_TO, EMAIL_REGION,
@@ -92,33 +92,27 @@ class NotificationService:
         # Send Telegram notification
         self._send_telegram(message)
 
-    def send_trade_notification(self, account_id: str, action: str, symbol: str,
-                              dollar_amount: float, shares: float, order_id: str) -> None:
+    def send_trade_notification(self, trade: Trade) -> None:
         """Send trade notification via email and Telegram."""
-        message = self._format_trade_message(
-            account_id, action, symbol, dollar_amount, shares, order_id
-        )
+        message = self._format_trade_message(trade)
         
         # Send email notification
-        self._send_email(f"Trade Executed: {action} {symbol}", message)
+        self._send_email(f"Trade Executed: {trade.action} {trade.symbol}", message)
         
         # Send Telegram notification
         self._send_telegram(message)
     
-    def _format_trade_message(self, account_id: str, action: str, symbol: str,
-                            dollar_amount: float, shares: float, order_id: str) -> str:
+    def _format_trade_message(self, trade: Trade) -> str:
         """Format trade information into a readable message."""
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
         return f"""🤖 Trade Executed
 
-📅 Time: {timestamp}
-👤 Account: {account_id}
-📊 Action: {action}
-🏷️ Symbol: {symbol}
-💰 Amount: ${dollar_amount:.2f}
-📈 Shares: {shares:.2f}
-🆔 Order ID: {order_id}"""
+📅 Time: {trade.formatted_timestamp}
+👤 Account: {trade.account_id}
+📊 Action: {trade.action}
+🏷️ Symbol: {trade.symbol}
+💰 Amount: ${trade.dollar_amount:.2f}
+📈 Shares: {trade.shares:.2f}
+🆔 Order ID: {trade.order_id or 'N/A'}"""
     
     def _send_email(self, subject: str, message: str) -> None:
         """Send email notification via AWS SES."""

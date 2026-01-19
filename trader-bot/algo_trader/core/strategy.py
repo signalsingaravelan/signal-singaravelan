@@ -31,8 +31,8 @@ import exchange_calendars as xcals
 
 from algo_trader.clients import IBKRClient
 from algo_trader.logging import get_logger
+from algo_trader.models import Signal, Severity
 from algo_trader.notifications import NotificationService
-from algo_trader.utils.enums import Signal, Severity
 
 from algo_trader.utils.config import MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF
 from algo_trader.utils.decorators import retry

@@ -3,9 +3,9 @@
 from algo_trader.clients import IBKRClient
 from algo_trader.core.strategy import TradingStrategy
 from algo_trader.logging import get_logger, TradeLogger
+from algo_trader.models import Trade, Signal, Severity
 from algo_trader.notifications import NotificationService
 from algo_trader.utils.config import SYMBOL, COMMISSION_TYPE
-from algo_trader.utils.enums import Signal, Severity
 
 
 class Trader:
@@ -63,8 +63,17 @@ class Trader:
             self.logger.info(f"Commission Estimate: ${commission:.2f}")
             self.logger.info(f"Placing BUY order for ${amount:.2f} of {SYMBOL}")
             
-            self.client.place_buy_order(account_id, contract_id, amount)
-            self.trade_logger.log_trade(account_id, "Buy", SYMBOL, amount, quantity)
+            order_id = self.client.place_buy_order(account_id, contract_id, amount)
+            
+            trade = Trade(
+                account_id=account_id,
+                action="Buy",
+                symbol=SYMBOL,
+                dollar_amount=amount,
+                shares=quantity,
+                order_id=order_id
+            )
+            self.trade_logger.log_trade(trade)
         else:
             self.logger.warning("Insufficient cash for purchase.")
     
@@ -75,8 +84,17 @@ class Trader:
             amount = quantity * price
             self.logger.info(f"Placing SELL order for {quantity} shares of {SYMBOL}")
 
-            self.client.place_sell_order(account_id, contract_id, quantity)
-            self.trade_logger.log_trade(account_id, "Sell", SYMBOL, amount, quantity)
+            order_id = self.client.place_sell_order(account_id, contract_id, quantity)
+            
+            trade = Trade(
+                account_id=account_id,
+                action="Sell",
+                symbol=SYMBOL,
+                dollar_amount=amount,
+                shares=quantity,
+                order_id=order_id
+            )
+            self.trade_logger.log_trade(trade)
         else:
             self.logger.info(f"No {SYMBOL} position to sell.")
 

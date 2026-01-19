@@ -9,6 +9,7 @@ import pandas as pd
 from botocore.exceptions import ClientError
 
 from algo_trader.logging.cloudwatch_logger import get_logger
+from algo_trader.models import Trade
 from algo_trader.notifications import NotificationService
 from algo_trader.utils.config import S3_BUCKET_NAME, S3_REGION, S3_KEY_PREFIX
 
@@ -30,39 +31,27 @@ class TradeLogger:
     # Public methods
     # -------------------------------------------------------------------------
 
-    def log_trade(self, account_id: str, action: str, symbol: str, 
-                  dollar_amount: float, shares: float) -> str:
-        """Log trade to S3 and send notifications. Returns generated order ID."""
-        """TODO: Use the orderId from IBKR instead"""
-
+    def log_trade(self, trade: Trade) -> str:
+        """Log trade to S3 and send notifications. Returns order ID."""
         # Initialize bucket with account ID on first trade
-        self._initialize_bucket(account_id)
+        self._initialize_bucket(trade.account_id)
 
-        order_id = f"ORD_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        
-        trade_record = {
-            "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "OrderId": order_id,
-            "Action": action,
-            "Symbol": symbol,
-            "Dollar Amount": dollar_amount,
-            "Shares": round(shares, 2)
-        }
+        # Ensure trade has an order ID
+        if trade.order_id is None:
+            trade.order_id = f"ORD_{trade.timestamp.strftime('%Y%m%d_%H%M%S')}"
         
         try:
-            s3_key = self._get_s3_key(account_id)
+            s3_key = self._get_s3_key(trade.account_id)
             existing_df = self._download_excel(s3_key)
-            updated_df = pd.concat([existing_df, pd.DataFrame([trade_record])], ignore_index=True)
+            updated_df = pd.concat([existing_df, pd.DataFrame([trade.to_dict()])], ignore_index=True)
             self._upload_excel(updated_df, s3_key)
 
             self.logger.info(f"Trade logged to s3://{self.bucket_name}/{s3_key}")
-            self.notifications.send_trade_notification(
-                account_id, action, symbol, dollar_amount, shares, order_id
-            )
+            self.notifications.send_trade_notification(trade)
         except Exception as e:
             self.logger.error(f"Failed to log trade: {e}")
         
-        return order_id
+        return trade.order_id
 
     def get_trade_history(self, account_id: str) -> Optional[pd.DataFrame]:
         """Retrieve trade history DataFrame for an account."""
