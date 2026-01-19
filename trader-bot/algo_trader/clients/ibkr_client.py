@@ -2,9 +2,7 @@
 
 import urllib3
 from typing import Optional
-
 import requests
-import yfinance as yf
 
 from algo_trader.logging import get_logger
 from algo_trader.utils.config import (
@@ -56,7 +54,46 @@ class IBKRClient:
         
         data = response.json()
         return float(data["availableFunds"])
-    
+
+    @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
+    def get_contract_id(self, symbol: str, sec_type="STK") -> int:
+        """Get contract id for a symbol."""
+        response = self.session.get(f"{BASE_URL}/iserver/secdef/search",
+                                    params={"symbol": symbol, "secType": sec_type})
+        response.raise_for_status()
+        
+        data = response.json()
+        if data and isinstance(data, list):
+            return int(data[0]["conid"])
+
+        raise Exception(f"Conid not found for symbol {symbol}")
+
+    @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
+    def get_price(self, conid: int) -> float:
+        """Get price for a contract."""
+        response = self.session.get(f"{BASE_URL}/iserver/marketdata/snapshot",
+                                    params={"conids": conid, "fields": "31,84,86"})
+        response.raise_for_status()
+
+        data = response.json()
+        if not data or not isinstance(data, list):
+            raise Exception("Invalid market data response.")
+        snapshot = data[0]
+
+        # Try prices in order of preference
+        # 31 = last price
+        # 84 = mark price
+        # 86 = close price
+        for field in ("31", "84", "86"):
+            price = snapshot.get(field)
+            if price is not None:
+                try:
+                    return float(price)
+                except ValueError:
+                    continue
+
+        raise Exception(f"Price not found for conid {conid}.")
+
     @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
     def get_position(self, account_id: str, conid: int) -> float:
         """Get current position for a given contract ID."""
@@ -126,13 +163,3 @@ class IBKRClient:
         response.raise_for_status()
         self.logger.info("Order confirmed")
 
-
-class MarketDataProvider:
-    """Market data provider using Yahoo Finance."""
-    
-    @staticmethod
-    def get_price(symbol: str) -> float:
-        """Get the latest price for a symbol."""
-        ticker = yf.Ticker(symbol)
-        history = ticker.history(period="1d")
-        return history["Close"].iloc[-1]

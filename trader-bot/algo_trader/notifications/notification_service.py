@@ -9,6 +9,7 @@ import boto3
 import requests
 from botocore.exceptions import ClientError
 
+from algo_trader.utils.enums import Severity
 from algo_trader.logging import get_logger
 from algo_trader.utils.config import (
     EMAIL_FROM, EMAIL_TO, EMAIL_REGION,
@@ -76,6 +77,21 @@ class NotificationService:
             self.logger.error(f"Unexpected error retrieving Telegram token: {e}")
             return None
     
+    def send_notification(self, account_id: str, severity: Severity, message: str) -> None:
+        """Send notification via email and Telegram."""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        message = f"""
+📅 Time: {timestamp}
+👤 Account: {account_id}
+🏷️ Severity: {severity.name}
+📊 Message: {message}"""
+
+        # Send email notification
+        self._send_email(f"Sig-Sriram > Account: {account_id} > {severity}", message)
+        
+        # Send Telegram notification
+        self._send_telegram(message)
+
     def send_trade_notification(self, account_id: str, action: str, symbol: str,
                               dollar_amount: float, shares: float, order_id: str) -> None:
         """Send trade notification via email and Telegram."""

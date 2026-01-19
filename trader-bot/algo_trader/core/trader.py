@@ -1,10 +1,11 @@
 """Main trading execution logic."""
 
-from algo_trader.clients import IBKRClient, MarketDataProvider
+from algo_trader.clients import IBKRClient
 from algo_trader.core.strategy import TradingStrategy
 from algo_trader.logging import get_logger, TradeLogger
-from algo_trader.utils.config import SYMBOL, TQQQ_CONTRACT_ID, MAX_PER_ORDER
-from algo_trader.utils.enums import Signal
+from algo_trader.notifications import NotificationService
+from algo_trader.utils.config import SYMBOL, COMMISSION_TYPE
+from algo_trader.utils.enums import Signal, Severity
 
 
 class Trader:
@@ -12,68 +13,95 @@ class Trader:
     
     def __init__(self):
         self.client = IBKRClient()
-        self.market_data = MarketDataProvider()
         self.strategy = TradingStrategy()
         self.trade_logger = TradeLogger()
         self.logger = get_logger()
-    
+        self.notifications = NotificationService()
+
     def execute_trade(self) -> None:
         """Execute the main trading logic."""
         try:
             self.client.check_auth()
             account_id = self.client.get_account_id()
+            contract_id = self.client.get_contract_id(SYMBOL)
             
             # Initialize CloudWatch with account-specific log group
             self.logger.initialize_cloudwatch(account_id)
             self.logger.info("----------------BEGIN----------------")
             
             signal = self.strategy.get_signal()
-            self.logger.info(f"Market signal: {signal.name}")
+            self.logger.info(f"Market Signal: {signal.name}")
+            self.notifications.send_notification(account_id, Severity.INFO, f"Market Signal - {signal.name}")
             
-            price = self.market_data.get_price(SYMBOL)
-            current_position = self.client.get_position(account_id, int(TQQQ_CONTRACT_ID))
+            price = self.client.get_price(contract_id)
+            current_position = self.client.get_position(account_id, contract_id)
             
             self.logger.info(f"{SYMBOL} Price: ${price:.2f}")
             self.logger.info(f"Current Position: {current_position} shares")
             
             if signal == Signal.BULLISH:
-                self._handle_bullish_signal(account_id, price)
-            else:
-                self._handle_bearish_or_neutral_signal(account_id, current_position)
-                
+                self._handle_bullish_signal(account_id, contract_id, price)
+            elif signal == Signal.BEARISH or signal == Signal.NEUTRAL:
+                self._handle_bearish_or_neutral_signal(account_id, contract_id, price, current_position)
+
         except Exception as e:
             self.logger.error(f"Trade execution failed: {e}")
             raise
         finally:
             self.logger.info("-----------------END-----------------")
     
-    def _handle_bullish_signal(self, account_id: str, price: float) -> None:
+    def _handle_bullish_signal(self, account_id: str, contract_id: int, price: float) -> None:
         """Handle bullish signal by buying the symbol."""
         available_cash = self.client.get_available_cash(account_id)
-        self.logger.info(f"Available cash: ${available_cash:.2f}")
+        self.logger.info(f"Available Cash: ${available_cash:.2f}")
         
-        if available_cash > 0:
-            cash_amount = min(available_cash, MAX_PER_ORDER)
-            self.logger.info(f"Placing BUY order for ${cash_amount:.2f} of {SYMBOL}")
+        if available_cash > 5:
+            quantity = available_cash / price
+            commission = self._get_ibkr_commission(quantity, price, COMMISSION_TYPE)
+            amount = available_cash - commission - 1
+
+            self.logger.info(f"Commission Estimate: ${commission:.2f}")
+            self.logger.info(f"Placing BUY order for ${amount:.2f} of {SYMBOL}")
             
-            shares = cash_amount / price
-            
-            self.client.place_buy_order(account_id, TQQQ_CONTRACT_ID, cash_amount)
-            self.trade_logger.log_trade(account_id, "Buy", SYMBOL, cash_amount, shares)
+            self.client.place_buy_order(account_id, contract_id, amount)
+            self.trade_logger.log_trade(account_id, "Buy", SYMBOL, amount, quantity)
         else:
-            self.logger.warning("Insufficient cash for purchase")
+            self.logger.warning("Insufficient cash for purchase.")
     
-    def _handle_bearish_or_neutral_signal(self, account_id: str, current_position: float) -> None:
+    def _handle_bearish_or_neutral_signal(self, account_id: str, contract_id: int, price: float, current_position: float) -> None:
         """Handle bearish or neutral signal by selling the symbol."""
         if current_position > 0:
             quantity = int(current_position)
+            amount = quantity * price
             self.logger.info(f"Placing SELL order for {quantity} shares of {SYMBOL}")
-            
-            price = self.market_data.get_price(SYMBOL)
-            dollar_amount = quantity * price
-            shares = current_position
-            
-            self.client.place_sell_order(account_id, TQQQ_CONTRACT_ID, quantity)
-            self.trade_logger.log_trade(account_id, "Sell", SYMBOL, dollar_amount, shares)
+
+            self.client.place_sell_order(account_id, contract_id, quantity)
+            self.trade_logger.log_trade(account_id, "Sell", SYMBOL, amount, quantity)
         else:
-            self.logger.info(f"No {SYMBOL} position to sell")
+            self.logger.info(f"No {SYMBOL} position to sell.")
+
+    def _get_ibkr_commission(self, quantity: float, price: float, commission_type: str) -> float:
+        """Get IBKR Pro commission estimate."""
+
+        trade_value = quantity * price
+
+        if commission_type.upper() == "TIERED":
+            RATE_PER_SHARE = 0.0035     # $0.0035 per share
+            MIN_COMMISSION = 0.35       # Minimum per order
+            MAX_COMMISSION_PCT = 0.01   # Max 1% of trade value
+
+            commission = quantity * RATE_PER_SHARE
+            commission = max(commission, MIN_COMMISSION)
+            commission = min(commission, trade_value * MAX_COMMISSION_PCT)
+
+        elif commission_type.upper() == "FIXED":
+            RATE_PER_SHARE = 0.005      # $0.005 per share
+            MIN_COMMISSION = 1.00       # Minimum per order
+
+            commission = quantity * RATE_PER_SHARE
+            commission = max(commission, MIN_COMMISSION)
+
+        else:
+            raise ValueError("Invalid commission_type. Must be 'TIERED' or 'FIXED'.")
+
+        return round(commission, 2)
