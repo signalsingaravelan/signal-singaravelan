@@ -23,7 +23,8 @@ class TradeLogger:
         self.logger = get_logger()
         self.notifications = NotificationService()
         self.s3 = boto3.client("s3", region_name=S3_REGION)
-        self._ensure_bucket_exists()
+        self.bucket_name = S3_BUCKET_NAME
+        self._bucket_initialized = False
 
     # -------------------------------------------------------------------------
     # Public methods
@@ -33,6 +34,10 @@ class TradeLogger:
                   dollar_amount: float, shares: float) -> str:
         """Log trade to S3 and send notifications. Returns generated order ID."""
         """TODO: Use the orderId from IBKR instead"""
+
+        # Initialize bucket with account ID on first trade
+        self._initialize_bucket(account_id)
+
         order_id = f"ORD_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
         trade_record = {
@@ -50,7 +55,7 @@ class TradeLogger:
             updated_df = pd.concat([existing_df, pd.DataFrame([trade_record])], ignore_index=True)
             self._upload_excel(updated_df, s3_key)
 
-            self.logger.info(f"Trade logged to s3://{S3_BUCKET_NAME}/{s3_key}")
+            self.logger.info(f"Trade logged to s3://{self.bucket_name}/{s3_key}")
             self.notifications.send_trade_notification(
                 account_id, action, symbol, dollar_amount, shares, order_id
             )
@@ -61,6 +66,7 @@ class TradeLogger:
 
     def get_trade_history(self, account_id: str) -> Optional[pd.DataFrame]:
         """Retrieve trade history DataFrame for an account."""
+        self._initialize_bucket(account_id)
         try:
             df = self._download_excel(self._get_s3_key(account_id))
             return df if not df.empty else None
@@ -70,8 +76,9 @@ class TradeLogger:
 
     def download_to_file(self, account_id: str, local_path: str) -> bool:
         """Download trade history Excel file to local path."""
+        self._initialize_bucket(account_id)
         try:
-            self.s3.download_file(S3_BUCKET_NAME, self._get_s3_key(account_id), local_path)
+            self.s3.download_file(self.bucket_name, self._get_s3_key(account_id), local_path)
             self.logger.info(f"Downloaded trade history to {local_path}")
             return True
         except ClientError as e:
@@ -91,10 +98,20 @@ class TradeLogger:
         """Generate S3 key for account's trade history file."""
         return f"{S3_KEY_PREFIX}{self.FILENAME_TEMPLATE.format(account_id=account_id)}"
 
+    def _initialize_bucket(self, account_id: str) -> None:
+        """Initialize bucket with account-specific name on first use."""
+        if self._bucket_initialized:
+            return
+
+        # Append account ID to bucket name (lowercase for S3 naming rules)
+        self.bucket_name = f"{S3_BUCKET_NAME}-{account_id.lower()}"
+        self._ensure_bucket_exists()
+        self._bucket_initialized = True
+
     def _ensure_bucket_exists(self) -> None:
         """Create S3 bucket if it doesn't exist."""
         try:
-            self.s3.head_bucket(Bucket=S3_BUCKET_NAME)
+            self.s3.head_bucket(Bucket=self.bucket_name)
         except ClientError as e:
             if e.response["Error"]["Code"] == "404":
                 self._create_bucket()
@@ -106,20 +123,20 @@ class TradeLogger:
         try:
             # us-east-1 doesn't need LocationConstraint
             if S3_REGION == "us-east-1":
-                self.s3.create_bucket(Bucket=S3_BUCKET_NAME)
+                self.s3.create_bucket(Bucket=self.bucket_name)
             else:
                 self.s3.create_bucket(
-                    Bucket=S3_BUCKET_NAME,
+                    Bucket=self.bucket_name,
                     CreateBucketConfiguration={"LocationConstraint": S3_REGION}
                 )
-            self.logger.info(f"Created S3 bucket: {S3_BUCKET_NAME}")
+            self.logger.info(f"Created S3 bucket: {self.bucket_name}")
         except ClientError as e:
             self.logger.error(f"Failed to create bucket: {e}")
 
     def _download_excel(self, s3_key: str) -> pd.DataFrame:
         """Download Excel file from S3, returns empty DataFrame if not found."""
         try:
-            response = self.s3.get_object(Bucket=S3_BUCKET_NAME, Key=s3_key)
+            response = self.s3.get_object(Bucket=self.bucket_name, Key=s3_key)
             return pd.read_excel(io.BytesIO(response["Body"].read()))
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
@@ -133,7 +150,7 @@ class TradeLogger:
         buffer.seek(0)
         
         self.s3.put_object(
-            Bucket=S3_BUCKET_NAME,
+            Bucket=self.bucket_name,
             Key=s3_key,
             Body=buffer.getvalue(),
             ContentType=self.EXCEL_CONTENT_TYPE
