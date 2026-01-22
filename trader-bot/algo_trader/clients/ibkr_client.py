@@ -140,55 +140,110 @@ class IBKRClient:
         return self._place_market_order(account_id, payload)
 
     def _place_market_order(self, account_id: str, payload: dict) -> Optional[str]:
-        """Place a market order with the given payload. Returns order ID if available."""
+        """Place market order and handle confirmation flow. Returns order ID."""
         response = self.session.post(
             f"{BASE_URL}/iserver/account/{account_id}/orders",
             json=payload
         )
         response.raise_for_status()
-        
         result = response.json()
         self.logger.info(f"Order response: {result}")
         
-        order_id = None
+        if not isinstance(result, list) or not result:
+            raise Exception("Order failed - no order ID received")
         
-        if isinstance(result, list) and result:
-            # Check for order_id in the initial response
-            if "order_id" in result[0]:
-                order_id = result[0]["order_id"]
-                self.logger.info(f"Order ID from initial response: {order_id}")
-            
-            # Handle confirmation if needed
-            if "id" in result[0]:
-                confirmation_order_id = self._confirm_order(result[0]["id"])
-                # Use confirmation order_id if we didn't get one from initial response
-                if order_id is None and confirmation_order_id is not None:
-                    order_id = confirmation_order_id
+        order_data = result[0]
         
+        # Return order ID if immediately available
+        if "order_id" in order_data:
+            order_id = order_data["order_id"]
+        elif "id" in order_data:
+            # Handle confirmation flow if required
+            order_id = self._confirm_order(order_data["id"])
+        else:
+            order_id = None
+
+        if order_id is None:
+            raise Exception("Order failed - no order ID received")
+
+        self.logger.info(f"Order confirmed with ID: {order_id}")
+
         return order_id
     
     @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
-    def _confirm_order(self, confirm_id: str) -> Optional[str]:
-        """Confirm an order that requires confirmation. Returns order_id if available."""
+    def _confirm_order(self, confirm_id: str, max_attempts: int = 5) -> Optional[str]:
+        """
+        Confirm order through multiple rounds if needed.
+        
+        IBKR Message Codes (auto-confirmed):
+        - o383: Size Limit Warning
+                "The following order size exceeds the Size Limit of 500."
+                Triggered when order quantity exceeds configured size limit.
+        
+        - o451: Total Value Limit Warning
+                "The following order cash quantity exceeds the Total Value Limit of 100,000 USD."
+                Triggered when order value exceeds configured dollar limit.
+        
+        - o354: No Market Data Warning
+                "You are submitting an order without market data."
+                Triggered when placing orders without active market data subscription.
+        
+        - o10164: Cash Quantity Responsibility Notice
+                "Traders are responsible for understanding cash quantity details."
+                Informational notice about cash quantity order mechanics.
+        
+        - o10223: Cash Quantity Order Confirmation
+                "Orders that express size using a monetary value (cash quantity) are provided on a non-guaranteed basis."
+                Explains that cash quantity orders are simulated and use Cash Quantity Estimate Factor.
+        
+        Returns:
+            order_id on success, None on failure
+        """
+        ALLOWED_MESSAGE_IDS = {"o383", "o451", "o354", "o10164", "o10223"}
+        
+        for attempt in range(1, max_attempts + 1):
+            self.logger.info(f"Confirmation attempt {attempt}/{max_attempts} for ID: {confirm_id}")
+            
+            result = self._send_confirmation(confirm_id)
+            order_id = self._get_field(result, "order_id")
+            
+            if order_id:
+                self.logger.info(f"Order confirmed successfully with ID: {order_id}")
+                return order_id
+            
+            # Check for next confirmation round
+            next_id = self._get_field(result, "id")
+            if not next_id:
+                self.logger.warning("No order_id or confirmation_id in response")
+                break
+            
+            message_ids = self._get_field(result, "messageIds") or []
+            if not any(msg_id in ALLOWED_MESSAGE_IDS for msg_id in message_ids):
+                self.logger.warning(f"Unsupported message IDs: {message_ids}")
+                break
+            
+            self.logger.info(f"Auto-confirming IBKR warning: {message_ids}")
+            confirm_id = next_id
+        
+        self.logger.error(f"Confirmation failed after {attempt} attempts")
+        return None
+    
+    def _send_confirmation(self, confirm_id: str) -> dict:
+        """Send confirmation request and return response."""
         response = self.session.post(
             f"{BASE_URL}/iserver/reply/{confirm_id}",
             json={"confirmed": True}
         )
         response.raise_for_status()
-        
         result = response.json()
-        self.logger.info(f"Order confirmation response: {result}")
-        
-        # Extract order_id from confirmation response
-        order_id = None
+        self.logger.info(f"Confirmation response: {result}")
+        return result
+    
+    def _get_field(self, result, field: str):
+        """Extract field from response (handles both list and dict formats)."""
         if isinstance(result, list) and result:
-            if "order_id" in result[0]:
-                order_id = result[0]["order_id"]
-                self.logger.info(f"Order ID from confirmation: {order_id}")
-        elif isinstance(result, dict) and "order_id" in result:
-            order_id = result["order_id"]
-            self.logger.info(f"Order ID from confirmation: {order_id}")
-        
-        self.logger.info("Order confirmed")
-        return order_id
+            return result[0].get(field)
+        if isinstance(result, dict):
+            return result.get(field)
+        return None
 
