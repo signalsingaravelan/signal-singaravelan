@@ -20,6 +20,19 @@ class IBKRClient:
         self._account_id: Optional[str] = None
         self.logger = get_logger()
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
+        # Message IDs to suppress for order reply messages
+        self.suppress_message_ids = [
+            "o163",   # Price exceeds percentage constraint
+            "o354",   # Order size exceeds limit
+            "o382",   # Outside regular trading hours
+            "o383",   # Market data not subscribed
+            "o403",   # Order rejected
+            "o451",   # Insufficient funds warning
+            "o10151", # Order preview warning
+            "o10164", # Price improvement warning
+            "o10223"  # Order routing warning
+        ]
     
     @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
     def check_auth(self) -> bool:
@@ -33,6 +46,40 @@ class IBKRClient:
         
         self.logger.info("Authenticated with IBKR Web API")
         return True
+    
+    @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
+    def suppress_order_reply_messages(self) -> bool:
+        """Suppress specified order reply messages for the current session."""
+        try:
+            for message_id in self.suppress_message_ids:
+                response = self.session.post(
+                    f"{BASE_URL}/iserver/questions/suppress/{message_id}"
+                )
+                response.raise_for_status()
+                self.logger.debug(f"Suppressed order reply message: {message_id}")
+            
+            self.logger.info(f"Successfully suppressed {len(self.suppress_message_ids)} order reply message types")
+            return True
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to suppress order reply messages: {e}")
+            return False
+    
+    def initialize(self) -> bool:
+        """Initialize the client by checking auth and suppressing order reply messages."""
+        try:
+            # Check authentication first
+            self.check_auth()
+            
+            # Suppress order reply messages
+            self.suppress_order_reply_messages()
+            
+            self.logger.info("IBKR client initialized successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize IBKR client: {e}")
+            return False
     
     @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
     def get_account_id(self) -> str:
