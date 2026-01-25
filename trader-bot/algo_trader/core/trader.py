@@ -21,7 +21,10 @@ class Trader:
     def execute_trade(self) -> None:
         """Execute the main trading logic."""
         try:
-            self.client.check_auth()
+            # Initialize client (auth check + order reply suppression)
+            if not self.client.initialize():
+                raise Exception("Failed to initialize IBKR client")
+                
             account_id = self.client.get_account_id()
             contract_id = self.client.get_contract_id(SYMBOL)
             
