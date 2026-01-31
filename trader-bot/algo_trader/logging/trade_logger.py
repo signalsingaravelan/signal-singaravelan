@@ -75,10 +75,6 @@ class TradeLogger:
             self.logger.error(f"S3 download failed ({error_code}): {e}")
             return False
 
-    def test_notifications(self) -> None:
-        """Send test notifications to verify configuration."""
-        self.notifications.send_test_notification()
-
     # -------------------------------------------------------------------------
     # Private methods
     # -------------------------------------------------------------------------

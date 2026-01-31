@@ -59,7 +59,7 @@ class CloudWatchLogger:
             return
         
         # Append account ID to log group name
-        self.log_group = f"{self.log_group}-{account_id}"
+        self.log_group = f"{self.log_group}-{account_id.lower()}"
         self._cloudwatch, self.log_stream = self._create_cloudwatch_client()
         self._cloudwatch_initialized = True
 
