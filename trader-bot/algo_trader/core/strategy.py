@@ -151,6 +151,9 @@ class TradingStrategy:
             else:
                 signal = Signal.NEUTRAL
 
+            # For testing
+            # signal = Signal.BEARISH
+
             message = f"Market Signal: {signal.name} as of {asof_date}"
             self.logger.info(message)
             self.notifications.send_notification(account_id, Severity.INFO, message)
