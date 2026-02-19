@@ -116,11 +116,11 @@ class IBKRClient:
         response.raise_for_status()
         
         data = response.json()
-        equity_with_loan_value = data.get("equityWithLoanValue")
-        if equity_with_loan_value is not None:
-            return float(equity_with_loan_value)
+        net_liquidation_value = data.get("netLiquidationValue")
+        if net_liquidation_value is not None:
+            return float(net_liquidation_value)
 
-        raise Exception(f"Failed to get account balance - 'equityWithLoanValue' not found in response")
+        raise Exception(f"Failed to get account balance - 'netLiquidationValue' not found in response")
 
     @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
     def get_contract_id(self, symbol: str, sec_type="STK") -> int:
