@@ -46,10 +46,13 @@ class Trader:
             contract_id = self.client.get_contract_id(SYMBOL)
             price = self.client.get_price(contract_id)
             current_position = self.client.get_position(self.account_id, contract_id)
+            account_balance = self.client.get_account_balance(self.account_id)
 
             self.logger.info("-------------------------------------")
             self.logger.info(f"{SYMBOL} Price: ${price:.2f}")
             self.logger.info(f"Current Position: {current_position} shares")
+            self.logger.info(f"Account Balance: ${account_balance:,.2f}")
+            self.notifications.send_notification(self.account_id, Severity.INFO, f"Account Balance: ${account_balance:,.2f}")
             
             if signal == Signal.BULLISH:
                 self._handle_bullish_signal(self.account_id, contract_id, price)

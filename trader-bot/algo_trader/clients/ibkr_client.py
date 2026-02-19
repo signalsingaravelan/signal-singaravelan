@@ -110,6 +110,19 @@ class IBKRClient:
         raise Exception(f"Failed to get available cash - 'availableFunds' not found in response")
 
     @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
+    def get_account_balance(self, account_id: str) -> float:
+        """Get account balance (equity with loan value)."""
+        response = self.session.get(f"{BASE_URL}/iserver/account/{account_id}/summary")
+        response.raise_for_status()
+        
+        data = response.json()
+        equity_with_loan_value = data.get("equityWithLoanValue")
+        if equity_with_loan_value is not None:
+            return float(equity_with_loan_value)
+
+        raise Exception(f"Failed to get account balance - 'equityWithLoanValue' not found in response")
+
+    @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
     def get_contract_id(self, symbol: str, sec_type="STK") -> int:
         """Get contract id for a symbol."""
         response = self.session.get(f"{BASE_URL}/iserver/secdef/search",
