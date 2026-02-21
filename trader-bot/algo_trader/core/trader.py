@@ -52,8 +52,10 @@ class Trader:
             self.logger.info(f"{SYMBOL} Price: ${price:.2f}")
             self.logger.info(f"Current Position: {current_position} shares")
             self.logger.info(f"Account Balance: ${account_balance:,.2f}")
+
             self.notifications.send_notification(self.account_id, Severity.INFO, f"Account Balance: ${account_balance:,.2f}")
-            
+            self.client.get_performance(self.account_id, self.notifications)
+
             if signal == Signal.BULLISH:
                 self._handle_bullish_signal(self.account_id, contract_id, price)
             elif signal == Signal.BEARISH or signal == Signal.NEUTRAL:

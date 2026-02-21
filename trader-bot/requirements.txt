@@ -4,3 +4,4 @@ pandas==3.0.0
 openpyxl==3.1.5
 boto3==1.42.36
 pandas_market_calendars==5.3.0
+matplotlib==3.9.0

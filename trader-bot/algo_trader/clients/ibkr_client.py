@@ -3,6 +3,10 @@
 import urllib3
 from typing import Optional
 import requests
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
+from datetime import datetime
 
 from algo_trader.logging import get_logger
 from algo_trader.utils.config import BASE_URL, VERIFY_SSL, MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF
@@ -302,3 +306,64 @@ class IBKRClient:
         
         self.logger.info("Order confirmed")
         return order_id
+
+    def get_performance(self, account_id: str, notifications_service) -> None:
+        """Get account performance for the last 1 year, plot it, and send via Telegram."""
+        try:
+            # Get performance data for last 1 year
+            response = self.session.post(
+                f"{BASE_URL}/pa/performance",
+                json={
+                    "acctIds": [account_id],
+                    "period": "1Y",
+                    "freq": "D"
+                }
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            performance_data = data.get("data", {})
+            returns = performance_data.get("returns", [])
+            
+            if not returns:
+                self.logger.warning("No performance data available")
+                return
+            
+            # Parse dates and values
+            dates = []
+            values = []
+            
+            for item in returns:
+                date_str = item.get("date")
+                value = item.get("value")
+                
+                if date_str and value is not None:
+                    try:
+                        date_obj = datetime.strptime(date_str, "%Y%m%d")
+                        dates.append(date_obj)
+                        values.append(float(value))
+                    except ValueError as e:
+                        self.logger.warning(f"Failed to parse date {date_str}: {e}")
+                        continue
+            
+            if not dates or not values:
+                self.logger.warning("No valid performance data to plot")
+                return
+            
+            # Create and save the plot
+            plt.figure(figsize=(16, 9))
+            plt.plot(dates, values, linewidth=2, color='#1f77b4')
+            plt.title('Account Performance - Last 1 Year', fontsize=16, fontweight='bold')
+            plt.xlabel('Date', fontsize=12)
+            plt.ylabel('Return (%)', fontsize=12)
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.savefig('performance.png', dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            # Send via Telegram
+            caption = f"📈 Account Performance - Last 1 Year\n👤 Account: {account_id}"
+            notifications_service.send_telegram_image(image_path, caption)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get performance data: {e}")

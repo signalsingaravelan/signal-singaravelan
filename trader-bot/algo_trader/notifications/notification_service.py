@@ -180,3 +180,42 @@ class NotificationService:
             self.logger.error(f"Failed to send Telegram message: {e}")
         except Exception as e:
             self.logger.error(f"Unexpected Telegram error: {e}")
+    
+    def send_telegram_image(self, image_path: str, caption: str = "") -> None:
+        """Send image via Telegram."""
+        if not self.telegram_token or not self.telegram_chat_id:
+            self.logger.debug("Telegram image notification skipped - not configured")
+            return
+        
+        # Validate token format
+        if ":" not in self.telegram_token:
+            self.logger.error("Invalid Telegram bot token format. Should be like: 123456789:ABC-DEF...")
+            return
+        
+        try:
+            url = f"https://api.telegram.org/bot{self.telegram_token}/sendPhoto"
+            
+            with open(image_path, 'rb') as image_file:
+                files = {'photo': image_file}
+                data = {
+                    'chat_id': self.telegram_chat_id,
+                    'caption': caption
+                }
+                
+                self.logger.debug(f"Sending Telegram image to chat_id: {self.telegram_chat_id}")
+                response = requests.post(url, files=files, data=data, timeout=30)
+                
+                if response.status_code != 200:
+                    error_detail = response.text
+                    self.logger.error(f"Telegram API error ({response.status_code}): {error_detail}")
+                    return
+                
+                response.raise_for_status()
+                self.logger.info("Telegram image sent successfully")
+                
+        except FileNotFoundError:
+            self.logger.error(f"Image file not found: {image_path}")
+        except requests.RequestException as e:
+            self.logger.error(f"Failed to send Telegram image: {e}")
+        except Exception as e:
+            self.logger.error(f"Unexpected Telegram image error: {e}")
