@@ -3,6 +3,8 @@
 import urllib3
 from typing import Optional
 import requests
+
+import os
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
@@ -322,32 +324,27 @@ class IBKRClient:
             response.raise_for_status()
             
             data = response.json()
-            performance_data = data.get("data", {})
-            returns = performance_data.get("returns", [])
-            
-            if not returns:
-                self.logger.warning("No performance data available")
-                return
-            
+            nav_section = data.get("nav", {})
+            dates_list = nav_section.get("dates", [])
+            nav_data = nav_section.get("data", [])
+            nav_values = nav_data[0].get("navs", [])
+
             # Parse dates and values
             dates = []
             values = []
             
-            for item in returns:
-                date_str = item.get("date")
-                value = item.get("value")
-                
-                if date_str and value is not None:
-                    try:
-                        date_obj = datetime.strptime(date_str, "%Y%m%d")
-                        dates.append(date_obj)
-                        values.append(float(value))
-                    except ValueError as e:
-                        self.logger.warning(f"Failed to parse date {date_str}: {e}")
-                        continue
+            for date_str, nav_val in zip(dates_list, nav_values):
+                try:
+                    date_obj = datetime.strptime(date_str, "%Y%m%d")
+                    dates.append(date_obj)
+                    values.append(float(nav_val))
+                except Exception as e:
+                    self.logger.warning(f"Failed parsing NAV row: {e}")
+                    continue
             
             if not dates or not values:
                 self.logger.warning("No valid performance data to plot")
+                self.logger.warning(f"Full response: {data}")
                 return
             
             # Create and save the plot
@@ -355,15 +352,24 @@ class IBKRClient:
             plt.plot(dates, values, linewidth=2, color='#1f77b4')
             plt.title('Account Performance - Last 1 Year', fontsize=16, fontweight='bold')
             plt.xlabel('Date', fontsize=12)
-            plt.ylabel('Return (%)', fontsize=12)
+            plt.ylabel('Net Liquidation Value ($)', fontsize=12)
             plt.grid(True, alpha=0.3)
             plt.tight_layout()
-            plt.savefig('performance.png', dpi=300, bbox_inches='tight')
+
+            file_name = 'performance.png'
+            plt.savefig(file_name, dpi=300, bbox_inches='tight')
             plt.close()
             
             # Send via Telegram
-            caption = f"📈 Account Performance - Last 1 Year\n👤 Account: {account_id}"
-            notifications_service.send_telegram_image(image_path, caption)
-            
+            caption = (
+                f"📈 Account Performance - Last 1 Year\n"
+                f"👤 Account: {account_id}\n"
+                f"💰 Net Liquidation Value: ${values[-1]:,.2f}"
+            )
+            notifications_service.send_telegram_image(file_name, caption)
+
+            if os.path.exists(file_name):
+                os.remove(file_name)
+
         except Exception as e:
             self.logger.error(f"Failed to get performance data: {e}")
