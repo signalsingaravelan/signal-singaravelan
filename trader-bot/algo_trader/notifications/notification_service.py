@@ -3,6 +3,7 @@
 import json
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 import boto3
@@ -79,7 +80,7 @@ class NotificationService:
     
     def send_notification(self, account_id: str, severity: Severity, message: str) -> None:
         """Send notification via email and Telegram."""
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d %H:%M:%S")
         message = f"""
 📅 Time: {timestamp}
 👤 Account: {account_id}
