@@ -312,7 +312,7 @@ class IBKRClient:
     def get_performance(self, account_id: str, notifications_service) -> None:
         """Get account performance for the last 1 year, plot it, and send via Telegram."""
         try:
-            # Get performance data for last 1 year
+            # --- Account NAV performance via /pa/performance ---
             response = self.session.post(
                 f"{BASE_URL}/pa/performance",
                 json={
@@ -322,17 +322,16 @@ class IBKRClient:
                 }
             )
             response.raise_for_status()
-            
+
             data = response.json()
             nav_section = data.get("nav", {})
             dates_list = nav_section.get("dates", [])
             nav_data = nav_section.get("data", [])
-            nav_values = nav_data[0].get("navs", [])
+            nav_values = nav_data[0].get("navs", []) if nav_data else []
 
-            # Parse dates and values
+            # Parse dates and NAV values
             dates = []
             values = []
-            
             for date_str, nav_val in zip(dates_list, nav_values):
                 try:
                     date_obj = datetime.strptime(date_str, "%Y%m%d")
@@ -341,13 +340,20 @@ class IBKRClient:
                 except Exception as e:
                     self.logger.warning(f"Failed parsing NAV row: {e}")
                     continue
-            
+
             if not dates or not values:
                 self.logger.warning("No valid performance data to plot")
                 self.logger.warning(f"Full response: {data}")
                 return
-            
-            # Create and save the plot
+
+            # Calculate account percentage return over the period
+            account_pct_return = ((values[-1] - values[0]) / values[0]) * 100
+
+            # SPY and QQQ percentage returns via market history
+            spy_pct_return = self._get_symbol_annual_return("SPY")
+            qqq_pct_return = self._get_symbol_annual_return("QQQ")
+
+            # Plot
             plt.figure(figsize=(16, 9))
             plt.plot(dates, values, linewidth=2, color='#1f77b4')
             plt.title('Account Performance - Last 1 Year', fontsize=16, fontweight='bold')
@@ -359,13 +365,24 @@ class IBKRClient:
             file_name = 'performance.png'
             plt.savefig(file_name, dpi=300, bbox_inches='tight')
             plt.close()
-            
-            # Send via Telegram
+
+            # Build caption
+            def _fmt_return(pct):
+                if pct is None:
+                    return "N/A"
+                arrow = "🟢" if pct >= 0 else "🔴"
+                return f"{arrow} {pct:+.2f}%"
+
             caption = (
-                f"📈 Account Performance - Last 1 Year\n"
+                f"📊 Account Performance - Last 1 Year\n"
                 f"👤 Account: {account_id}\n"
-                f"💰 Net Liquidation Value: ${values[-1]:,.2f}"
+                f"💰 Net Liquidation Value: ${values[-1]:,.2f}\n\n"
+                f"📈 Returns (1Y)\n"
+                f"  Account : {_fmt_return(account_pct_return)}\n"
+                f"  SPY     : {_fmt_return(spy_pct_return)}\n"
+                f"  QQQ     : {_fmt_return(qqq_pct_return)}"
             )
+
             notifications_service.send_telegram_image(file_name, caption)
 
             if os.path.exists(file_name):
@@ -373,3 +390,26 @@ class IBKRClient:
 
         except Exception as e:
             self.logger.error(f"Failed to get performance data: {e}")
+
+    def _get_symbol_annual_return(self, symbol: str) -> Optional[float]:
+        """Calculate the 1-year percentage return for a given symbol using daily market history."""
+        try:
+            conid = self.get_contract_id(symbol)
+            response = self.session.get(
+                f"{BASE_URL}/iserver/marketdata/history",
+                params={"conid": conid, "period": "1y", "bar": "1d", "outsideRth": "true"}
+            )
+            response.raise_for_status()
+
+            bars = response.json().get("data", [])
+            if len(bars) < 2:
+                self.logger.warning(f"Not enough price history for {symbol}")
+                return None
+
+            start_price = float(bars[0].get("c"))
+            end_price = float(bars[-1].get("c"))
+            return ((end_price - start_price) / start_price) * 100
+
+        except Exception as e:
+            self.logger.warning(f"Failed to get annual return for {symbol}: {e}")
+            return None
