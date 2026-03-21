@@ -347,30 +347,37 @@ class IBKRClient:
                 return
 
             # Simulate buy and hold using beginning balance
-            dates_bh, values_bh = self._get_buy_and_hold_series("TQQQ", values[0], dates[0])
+            dates_bh_spy, values_bh_spy = self._get_buy_and_hold_series("SPY", values[0], dates[0])
+            dates_bh_qqq, values_bh_qqq = self._get_buy_and_hold_series("QQQ", values[0], dates[0])
 
             # Calculate percentage returns
             account_pct_return = ((values[-1] - values[0]) / values[0]) * 100
-            buyhold_pct_return = ((values_bh[-1] - values_bh[0]) / values_bh[0]) * 100
-            spy_pct_return = self._get_symbol_annual_return("SPY")
-            qqq_pct_return = self._get_symbol_annual_return("QQQ")
+            buyhold_spy_pct_return = ((values_bh_spy[-1] - values_bh_spy[0]) / values_bh_spy[0]) * 100
+            buyhold_qqq_pct_return = ((values_bh_qqq[-1] - values_bh_qqq[0]) / values_bh_qqq[0]) * 100
+            # spy_pct_return = self._get_symbol_annual_return("SPY")
+            # qqq_pct_return = self._get_symbol_annual_return("QQQ")
 
             # Plot
-            plt.figure(figsize=(16, 9))
-            plt.plot(dates, values, linewidth=2, color='green', label='Account')
-            plt.plot(dates_bh, values_bh, linewidth=2, color='blue', linestyle='--', label='Buy & Hold')
+            fig, ax = plt.subplots(figsize=(16, 9))
+            ax.plot(dates, values, linewidth=2, color='gray', label='Account')
+            ax.plot(dates_bh_spy, values_bh_spy, linewidth=2, color='green', linestyle='--', label='Buy & Hold SPY')
+            ax.plot(dates_bh_qqq, values_bh_qqq, linewidth=2, color='blue', linestyle='--', label='Buy & Hold QQQ')
 
-            plt.title('Account Performance - Last 1 Year', fontsize=16, fontweight='bold')
-            plt.xlabel('Date', fontsize=12)
-            plt.ylabel('Net Liquidation Value ($)', fontsize=12)
+            ax.set_title('Account Performance - Last 1 Year', fontsize=16, fontweight='bold')
+            ax.set_xlabel('Date', fontsize=12)
+            ax.set_ylabel('Net Liquidation Value ($)', fontsize=12)
 
-            plt.legend(fontsize=11)
-            plt.grid(True, alpha=0.3)
+            # Mirror y-axis on the right side
+            ax.yaxis.set_tick_params(labelleft=True, labelright=True)
+            ax.tick_params(right=True, labelright=True)
+
+            ax.legend(fontsize=11)
+            ax.grid(True, alpha=0.3)
             plt.tight_layout()
 
             file_name = 'performance.png'
             plt.savefig(file_name, dpi=300, bbox_inches='tight')
-            plt.close()
+            plt.close(fig)
 
             # Build caption
             def _fmt_row(label, pct):
@@ -379,7 +386,7 @@ class IBKRClient:
                 emoji = "🟢" if pct >= 0 else "🔴"
                 sign = "+" if pct >= 0 else ""
                 value = f"{sign}{pct:.2f}%"
-                return f"{emoji} {label:<12}{value:>9}"
+                return f"{emoji} {label:<16}{value:>9}"
 
             caption = (
                 "<pre>"
@@ -387,13 +394,13 @@ class IBKRClient:
                 f"{'-'*35}\n"
                 f"{'Account':<18}{account_id:>13}\n"
                 f"{'Net Value':<18}{f'${values[-1]:,.2f}':>13}\n"
-                f"{'Buy & Hold Value':<18}{f'${values_bh[-1]:,.2f}':>13}\n\n"
+                f"{'Buy & Hold SPY':<18}{f'${values_bh_spy[-1]:,.2f}':>13}\n"
+                f"{'Buy & Hold QQQ':<18}{f'${values_bh_qqq[-1]:,.2f}':>13}\n\n"
                 f"{'Returns (1Y)'}\n"
                 f"{'-'*35}\n"
                 f"{_fmt_row('Account',  account_pct_return)}\n"
-                f"{_fmt_row('Buy & Hold', buyhold_pct_return)}\n"
-                f"{_fmt_row('SPY',      spy_pct_return)}\n"
-                f"{_fmt_row('QQQ',      qqq_pct_return)}"
+                f"{_fmt_row('Buy & Hold SPY', buyhold_spy_pct_return)}\n"
+                f"{_fmt_row('Buy & Hold QQQ', buyhold_qqq_pct_return)}\n"
                 "</pre>"
             )
 
