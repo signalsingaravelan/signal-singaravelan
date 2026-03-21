@@ -200,7 +200,8 @@ class NotificationService:
                 files = {'photo': image_file}
                 data = {
                     'chat_id': self.telegram_chat_id,
-                    'caption': caption
+                    'caption': caption,
+                    'parse_mode': 'HTML'
                 }
                 
                 self.logger.debug(f"Sending Telegram image to chat_id: {self.telegram_chat_id}")

@@ -346,19 +346,25 @@ class IBKRClient:
                 self.logger.warning(f"Full response: {data}")
                 return
 
-            # Calculate account percentage return over the period
-            account_pct_return = ((values[-1] - values[0]) / values[0]) * 100
+            # Simulate buy and hold using beginning balance
+            dates_bh, values_bh = self._get_buy_and_hold_series("TQQQ", values[0], dates[0])
 
-            # SPY and QQQ percentage returns via market history
+            # Calculate percentage returns
+            account_pct_return = ((values[-1] - values[0]) / values[0]) * 100
+            buyhold_pct_return = ((values_bh[-1] - values_bh[0]) / values_bh[0]) * 100
             spy_pct_return = self._get_symbol_annual_return("SPY")
             qqq_pct_return = self._get_symbol_annual_return("QQQ")
 
             # Plot
             plt.figure(figsize=(16, 9))
-            plt.plot(dates, values, linewidth=2, color='#1f77b4')
+            plt.plot(dates, values, linewidth=2, color='green', label='Account')
+            plt.plot(dates_bh, values_bh, linewidth=2, color='blue', linestyle='--', label='Buy & Hold')
+
             plt.title('Account Performance - Last 1 Year', fontsize=16, fontweight='bold')
             plt.xlabel('Date', fontsize=12)
             plt.ylabel('Net Liquidation Value ($)', fontsize=12)
+
+            plt.legend(fontsize=11)
             plt.grid(True, alpha=0.3)
             plt.tight_layout()
 
@@ -367,20 +373,28 @@ class IBKRClient:
             plt.close()
 
             # Build caption
-            def _fmt_return(pct):
+            def _fmt_row(label, pct):
                 if pct is None:
-                    return "N/A"
-                arrow = "🟢" if pct >= 0 else "🔴"
-                return f"{arrow} {pct:+.2f}%"
+                    return f"  {label:<12}{'N/A':>10}"
+                emoji = "🟢" if pct >= 0 else "🔴"
+                sign = "+" if pct >= 0 else ""
+                value = f"{sign}{pct:.2f}%"
+                return f"{emoji} {label:<12}{value:>9}"
 
             caption = (
-                f"📊 Account Performance - Last 1 Year\n"
-                f"👤 Account: {account_id}\n"
-                f"💰 Net Liquidation Value: ${values[-1]:,.2f}\n\n"
-                f"📈 Returns (1Y)\n"
-                f"  Account : {_fmt_return(account_pct_return)}\n"
-                f"  SPY     : {_fmt_return(spy_pct_return)}\n"
-                f"  QQQ     : {_fmt_return(qqq_pct_return)}"
+                "<pre>"
+                f"{'Balance'}\n"
+                f"{'-'*35}\n"
+                f"{'Account':<18}{account_id:>13}\n"
+                f"{'Net Value':<18}{f'${values[-1]:,.2f}':>13}\n"
+                f"{'Buy & Hold Value':<18}{f'${values_bh[-1]:,.2f}':>13}\n\n"
+                f"{'Returns (1Y)'}\n"
+                f"{'-'*35}\n"
+                f"{_fmt_row('Account',  account_pct_return)}\n"
+                f"{_fmt_row('Buy & Hold', buyhold_pct_return)}\n"
+                f"{_fmt_row('SPY',      spy_pct_return)}\n"
+                f"{_fmt_row('QQQ',      qqq_pct_return)}"
+                "</pre>"
             )
 
             notifications_service.send_telegram_image(file_name, caption)
@@ -390,6 +404,53 @@ class IBKRClient:
 
         except Exception as e:
             self.logger.error(f"Failed to get performance data: {e}")
+
+    def _get_buy_and_hold_series(self, symbol: str, starting_balance: float, start_date: datetime):
+        """
+        Simulate a buy-and-hold strategy for a symbol starting from start_date.
+        Returns (dates, portfolio_values) scaled so the first value equals starting_balance.
+        """
+        try:
+            # Calculate the number of days from start_date to today to determine the period to request
+            days_elapsed = (datetime.now() - start_date).days + 5  # +5 buffer for weekends/holidays
+            period = f"{days_elapsed}d"
+
+            conid = self.get_contract_id(symbol)
+            response = self.session.get(
+                f"{BASE_URL}/iserver/marketdata/history",
+                params={"conid": conid, "period": period, "bar": "1d", "outsideRth": "true"}
+            )
+            response.raise_for_status()
+
+            bars = response.json().get("data", [])
+            if len(bars) < 2:
+                self.logger.warning(f"Not enough price history for {symbol}")
+                return [], []
+
+            # Filter bars to only include dates on or after start_date
+            dates = []
+            prices = []
+            for bar in bars:
+                t = bar.get("t")
+                c = bar.get("c")
+                if t is not None and c is not None:
+                    bar_date = datetime.fromtimestamp(t / 1000).replace(hour=0, minute=0, second=0, microsecond=0)
+                    if bar_date >= start_date:
+                        dates.append(bar_date)
+                        prices.append(float(c))
+
+            if not prices:
+                return [], []
+
+            # Scale prices so the series starts at starting_balance
+            scale = starting_balance / prices[0]
+            sim_values = [p * scale for p in prices]
+
+            return dates, sim_values
+
+        except Exception as e:
+            self.logger.warning(f"Failed to build buy-and-hold series for {symbol}: {e}")
+            return [], []
 
     def _get_symbol_annual_return(self, symbol: str) -> Optional[float]:
         """Calculate the 1-year percentage return for a given symbol using daily market history."""
