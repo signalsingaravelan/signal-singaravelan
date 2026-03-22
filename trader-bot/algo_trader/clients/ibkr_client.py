@@ -341,6 +341,15 @@ class IBKRClient:
                     self.logger.warning(f"Failed parsing NAV row: {e}")
                     continue
 
+            # For account U20831848, exclude data prior to Jan 10, 2026
+            if account_id == "U20831848":
+                cutoff = datetime(2026, 1, 10)
+                filtered = [(d, v) for d, v in zip(dates, values) if d >= cutoff]
+                if filtered:
+                    dates, values = zip(*filtered)
+                    dates, values = list(dates), list(values)
+                    self.logger.info(f"Filtered NAV data to {len(dates)} entries from {dates[0].date()} onward")
+
             if not dates or not values:
                 self.logger.warning("No valid performance data to plot")
                 self.logger.warning(f"Full response: {data}")
