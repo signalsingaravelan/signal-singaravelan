@@ -54,7 +54,7 @@ class TradingStrategy:
             self._initialize_bucket(account_id)
 
             today = pd.Timestamp.now(tz='US/Eastern').date()
-            # today = date(2026, 1, 30) # override for testing purposes
+            # today = date(2026, 3, 30) # override for testing purposes
 
             nyse = mcal.get_calendar('NYSE')
             schedule = nyse.schedule(today, today)
@@ -65,19 +65,56 @@ class TradingStrategy:
                 self.notifications.send_notification(account_id, Severity.INFO, message)
                 return signal
 
-            self.logger.info(f"Downloading NDX price history")
-            url = "https://stooq.com/q/d/l/?s=%5Endx&i=d"
-            df = pd.read_csv(url)
-            
-            # Save CSV file locally
+            self.logger.info("Loading NDX price history from S3")
             csv_filename = "ndx-price-history.csv"
-            df.to_csv(csv_filename, index=False)
+            csv_s3_key = f"{S3_KEY_PREFIX}{csv_filename}"
+            df = self._load_csv_from_s3(csv_s3_key)
+
+            # Determine the latest completed trading session
+            recent_sessions = nyse.schedule(
+                start_date=pd.Timestamp.now(tz='US/Eastern').date() - pd.Timedelta(days=10),
+                end_date=pd.Timestamp.now(tz='US/Eastern').date()
+            )
+
+            # Exclude today if market is still open or hasn't opened yet
+            recent_sessions = recent_sessions[
+                recent_sessions.index.date < pd.Timestamp.now(tz='US/Eastern').date()
+            ]
+
+            latest_session = recent_sessions.index[-1].date()
+            self.logger.info(f"Latest completed trading session: {latest_session}")
+
+            df['Date'] = pd.to_datetime(df['Date'])
+            last_date_in_df = df['Date'].iloc[-1].date()
+            self.logger.info(f"Last date in price history: {last_date_in_df}")
+
+            # Fetch incremental data if the latest session is not in the DataFrame
+            if last_date_in_df < latest_session:
+                self.logger.info(f"Price history is stale — fetching latest row from Stooq")
+
+                try:
+                    url = "https://stooq.com/q/l/?s=%5Endx&f=sd2t2ohlcv&h&e=csv"
+                    new_df = pd.read_csv(url)
+
+                    # Transform columns to match schema: Date, Open, High, Low, Close, Volume
+                    new_df['Date'] = pd.to_datetime(new_df['Date'])
+                    new_df = new_df[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']]
+
+                    if not new_df.empty:
+                        df = pd.concat([df, new_df], ignore_index=True).drop_duplicates(subset='Date')
+                        df = df.sort_values('Date').reset_index(drop=True)
+                        self.logger.info(f"Appended {len(new_df)} new row(s) from Stooq")
+                    else:
+                        self.logger.info("No new rows returned from Stooq")
+                except Exception as e:
+                    self.logger.warning(f"Failed to fetch incremental data from Stooq: {e}")
 
             # Ideally the bot should run before market open.
             # If it runs after market open, this step removes the row for the current date.
-            df['Date'] = pd.to_datetime(df['Date'])
             if df['Date'].iloc[-1].date() == today:
                 df = df.iloc[:-1]
+
+            df.to_csv(csv_filename, index=False)
 
             # Indicators
             df["SMA50"] = df["Close"].rolling(50).mean()
@@ -199,6 +236,18 @@ class TradingStrategy:
         except ClientError as e:
             self.logger.error(f"Failed to create bucket: {e}")
             raise  # Re-raise the exception
+
+    @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
+    def _load_csv_from_s3(self, s3_key: str) -> pd.DataFrame:
+        """Download a CSV from S3 and return it as a DataFrame."""
+        try:
+            response = self.s3.get_object(Bucket=self.bucket_name, Key=s3_key)
+            df = pd.read_csv(response["Body"])
+            self.logger.info(f"Loaded {len(df)} rows from s3://{self.bucket_name}/{s3_key}")
+            return df
+        except ClientError as e:
+            self.logger.error(f"Failed to load CSV from S3 ({s3_key}): {e}")
+            raise
 
     @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
     def _upload_file_to_s3(self, local_file_path: str, s3_key: str) -> bool:
