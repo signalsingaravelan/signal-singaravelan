@@ -7,8 +7,7 @@ class Signal(Enum):
     """Trading signal enumeration."""
     BULLISH = 1
     BEARISH = 2
-    NEUTRAL = 3
-    CLOSED = 4
+    CLOSED = 3
 
 
 class Severity(Enum):

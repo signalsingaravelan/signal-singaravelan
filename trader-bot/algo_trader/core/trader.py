@@ -56,8 +56,8 @@ class Trader:
 
             if signal == Signal.BULLISH:
                 self._handle_bullish_signal(self.account_id, contract_id, price)
-            elif signal == Signal.BEARISH or signal == Signal.NEUTRAL:
-                self._handle_bearish_or_neutral_signal(self.account_id, contract_id, price, current_position)
+            elif signal == Signal.BEARISH:
+                self._handle_bearish_signal(self.account_id, contract_id, price, current_position)
             elif signal == Signal.CLOSED:
                 self.logger.info("Market is closed - no trading action taken")
             else:
@@ -102,8 +102,8 @@ class Trader:
         else:
             self.logger.warning("Insufficient cash for purchase.")
     
-    def _handle_bearish_or_neutral_signal(self, account_id: str, contract_id: int, price: float, current_position: float) -> None:
-        """Handle bearish or neutral signal by selling the symbol."""
+    def _handle_bearish_signal(self, account_id: str, contract_id: int, price: float, current_position: float) -> None:
+        """Handle bearish signal by selling the symbol."""
 
         if current_position > 0:
             quantity = current_position
