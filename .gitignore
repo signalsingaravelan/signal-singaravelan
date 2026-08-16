@@ -220,3 +220,7 @@ aws-credentials
 .vscode/settings.json
 .vscode/launch.json
 .vscode/extensions.json
+
+# Docs
+.claude/
+.docs/

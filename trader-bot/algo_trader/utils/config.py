@@ -22,12 +22,12 @@ S3_REGION = "us-east-1"
 S3_KEY_PREFIX = "trade-history/"  # Optional prefix for organizing files
 
 # Massive.com Configuration
-MASSIVE_API_KEY = "8xIyTYAdFkzyMbpspyDDMjjqyx98PhnZ"
+MASSIVE_API_KEY = ""
 
 # Notification Configuration
 # Email settings (using AWS SES)
-EMAIL_FROM = "signalsingaravelan@gmail.com"  # Replace with your verified SES email
-EMAIL_TO = "ac.vino@gmail.com"        # Replace with your email
+EMAIL_FROM = ""  # Replace with your verified SES email
+EMAIL_TO = ""        # Replace with your email
 EMAIL_REGION = "us-east-1"
 
 # Telegram settings

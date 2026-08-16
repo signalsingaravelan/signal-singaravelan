@@ -8,33 +8,45 @@
 #
 # Add, remove, or reconfigure accounts here without touching any code.
 
-  # - name: taxable-leveraged-etf
-  #   enabled: true
-  #   paper: true # Set to false only when ready to trade with real money
-  #   api_key_env: ALPACA_API_KEY_TAXABLE_LETF
-  #   api_secret_env: ALPACA_API_SECRET_TAXABLE_LETF
-  #   allocations:
-  #     TQQQ: 100
-
-  # - name: taxable-index-etf
-  #   enabled: false
-  #   paper: true
-  #   api_key_env: ALPACA_API_KEY_TAXABLE_IETF
-  #   api_secret_env: ALPACA_API_KEY_TAXABLE_IETF
-  #   allocations:
-  #     VTI: 20
-  #     VOO: 20
-  #     VUG: 30
-  #     VGT: 15
-  #     QQQ: 15
-
 accounts:
 
-  - name: roth-ira
-    enabled: true
+  - name: taxable-leveraged-etf
+    enabled: false
+    paper: true # Set to false only when ready to trade with real money
+    api_key_env: ALPACA_API_KEY_TAXABLE_LETF
+    api_secret_env: ALPACA_API_SECRET_TAXABLE_LETF
+    allocations:
+      TQQQ: 100
+
+  - name: taxable-index-etf
+    enabled: false
     paper: true
-    api_key_env: ALPACA_API_KEY_ROTH_IRA
-    api_secret_env: ALPACA_API_SECRET_ROTH_IRA
+    api_key_env: ALPACA_API_KEY_TAXABLE_IETF
+    api_secret_env: ALPACA_API_KEY_TAXABLE_IETF
+    allocations:
+      VTI: 20
+      VOO: 20
+      VUG: 30
+      VGT: 15
+      QQQ: 15
+
+  - name: roth-ira-vc
+    enabled: false
+    paper: true
+    api_key_env: ALPACA_API_KEY_ROTH_IRA_VC
+    api_secret_env: ALPACA_API_SECRET_ROTH_IRA_VC
+    allocations:
+      VTI: 20
+      VOO: 20
+      VUG: 30
+      VGT: 15
+      QQQ: 15
+
+  - name: roth-ira-ms
+    enabled: false
+    paper: true
+    api_key_env: ALPACA_API_KEY_ROTH_IRA_MS
+    api_secret_env: ALPACA_API_SECRET_ROTH_IRA_MS
     allocations:
       VTI: 20
       VOO: 20

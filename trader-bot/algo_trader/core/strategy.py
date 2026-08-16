@@ -85,8 +85,7 @@ class TradingStrategy:
 
             self.logger.info("Loading QQQ price history from S3")
             csv_filename = "qqq-price-history.csv"
-            csv_s3_key = f"{S3_KEY_PREFIX}{csv_filename}"
-            df = self._load_csv_from_s3(csv_s3_key)
+            df = self._load_csv_from_s3(csv_filename)
 
             # Determine the latest completed trading session
             recent_sessions = nyse.schedule(
