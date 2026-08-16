@@ -1,150 +1,147 @@
 """Main trading execution logic."""
 
-from algo_trader.clients import IBKRClient, OrderRejectionError
+from algo_trader.clients import AlpacaClient, OrderRejectionError
+from algo_trader.config import AccountConfig, get_enabled_accounts
+from algo_trader.core.portfolio import plan_buy, plan_sell_all
 from algo_trader.core.strategy import TradingStrategy
-from algo_trader.logging import get_logger, TradeLogger
+from algo_trader.logging import TradeLogger, get_logger
 from algo_trader.models import Trade, Signal, Severity
 from algo_trader.notifications import NotificationService
-from algo_trader.utils.config import SYMBOL, COMMISSION_TYPE
-
-# Trading constants
-MIN_CASH_THRESHOLD = 5.0  # Minimum cash required to place a trade
-CASH_BUFFER = 1.0         # Cash buffer to prevent overdraft
-
-# IBKR Commission rates
-TIERED_RATE_PER_SHARE = 0.0035    # $0.0035 per share
-TIERED_MIN_COMMISSION = 0.35      # Minimum per order
-TIERED_MAX_COMMISSION_PCT = 0.01  # Max 1% of trade value
-
-FIXED_RATE_PER_SHARE = 0.005      # $0.005 per share  
-FIXED_MIN_COMMISSION = 1.00       # Minimum per order
+from algo_trader.utils.config import MIN_CASH_THRESHOLD, MIN_ORDER_AMOUNT
 
 
 class Trader:
-    """Main trader class that orchestrates trading operations."""
-    
+    """Orchestrates a trading run: one strategy signal, applied independently across
+    every enabled Alpaca account per that account's own ticker allocation."""
+
     def __init__(self):
-        self.client = IBKRClient()
         self.strategy = TradingStrategy()
         self.trade_logger = TradeLogger()
         self.logger = get_logger()
         self.notifications = NotificationService()
-        self.account_id = ''
 
     def execute_trade(self) -> None:
-        """Execute the main trading logic."""
+        """Execute the main trading logic across all enabled accounts."""
         try:
-            # Initialize IBKR Client
-            self.client.initialize()
-            self.account_id = self.client.get_account_id()
-
-            # Initialize CloudWatch with account-specific log group
-            self.logger.initialize_cloudwatch(self.account_id)
             self.logger.info("----------------BEGIN----------------")
 
-            signal = self.strategy.get_signal(self.account_id)
-            contract_id = self.client.get_contract_id(SYMBOL)
-            price = self.client.get_price(contract_id)
-            current_position = self.client.get_position(self.account_id, contract_id)
-            account_balance = self.client.get_account_balance(self.account_id)
+            signal = self.strategy.get_signal()
+            self.logger.info(f"Signal: {signal.name}")
 
-            self.logger.info("-------------------------------------")
-            self.logger.info(f"{SYMBOL} Price: ${price:.2f}")
-            self.logger.info(f"Current Position: {current_position} shares")
-            self.logger.info(f"Account Balance: ${account_balance:,.2f}")
-            self.client.get_performance(self.account_id, self.notifications)
-
-            if signal == Signal.BULLISH:
-                self._handle_bullish_signal(self.account_id, contract_id, price)
-            elif signal == Signal.BEARISH:
-                self._handle_bearish_signal(self.account_id, contract_id, price, current_position)
-            elif signal == Signal.CLOSED:
+            if signal == Signal.CLOSED:
                 self.logger.info("Market is closed - no trading action taken")
-            else:
-                self.logger.warning(f"Unknown signal received: {signal}")
+                return
+
+            accounts = get_enabled_accounts()
+            if not accounts:
+                self.logger.warning("No enabled accounts configured - nothing to trade")
+                return
+
+            for account in accounts:
+                self._process_account(account, signal)
 
         except Exception as e:
             self.logger.error(f"Trade execution failed: {e}")
-            self.notifications.send_notification(self.account_id, Severity.ERROR, f"Trade execution failed: {e}")
+            self.notifications.send_notification("system", Severity.ERROR, f"Trade execution failed: {e}")
         finally:
             self.logger.info("-----------------END-----------------")
-    
-    def _handle_bullish_signal(self, account_id: str, contract_id: int, price: float) -> None:
-        """Handle bullish signal by buying the symbol."""
 
-        available_cash = self.client.get_available_cash(account_id)
-        self.logger.info(f"Available Cash: ${available_cash:.2f}")
-        
-        if available_cash > MIN_CASH_THRESHOLD:
-            quantity = available_cash / price
-            commission = self._get_ibkr_commission(quantity, price, COMMISSION_TYPE)
-            amount = available_cash - commission - CASH_BUFFER
-            
-            self.logger.info(f"Commission Estimate: ${commission:.2f}")
-            self.logger.info(f"Placing BUY order for ${amount:.2f} of {SYMBOL}")
-            self.logger.info("-------------------------------------")
-            
+    def _process_account(self, account: AccountConfig, signal: Signal) -> None:
+        """Handle one account's trading decision. Failures here are isolated so that
+        one account's issue doesn't prevent the others from trading."""
+        try:
+            client = AlpacaClient(account)
+            client.initialize()
+            self.logger.initialize_cloudwatch(account.name)
+
+            cash = client.get_cash()
+            positions = client.get_positions()
+            self.logger.info(f"[{account.name}] Cash: ${cash:,.2f} | Positions: {positions}")
+
+            client.get_performance(self.notifications)
+
+            if signal == Signal.BULLISH:
+                self._handle_bullish_signal(account, client, cash)
+            elif signal == Signal.BEARISH:
+                self._handle_bearish_signal(account, client, positions)
+
+        except Exception as e:
+            self.logger.error(f"[{account.name}] Failed to process account: {e}")
+            self.notifications.send_notification(account.name, Severity.ERROR, f"Account processing failed: {e}")
+
+    def _handle_bullish_signal(self, account: AccountConfig, client: AlpacaClient, cash: float) -> None:
+        """Invest available cash across the account's configured tickers.
+
+        Orders are submitted and logged immediately without waiting for a fill —
+        this runs before market open, so day market orders simply queue until the
+        exchange opens and there's nothing to wait for yet.
+        """
+        if cash <= MIN_CASH_THRESHOLD:
+            self.logger.warning(f"[{account.name}] Insufficient cash for purchase.")
+            return
+
+        buy_plan = plan_buy(cash, account.allocations, MIN_ORDER_AMOUNT)
+        if not buy_plan:
+            self.logger.warning(f"[{account.name}] No ticker allocation met the minimum order amount.")
+            return
+
+        for symbol, amount in buy_plan:
+            self.logger.info(f"[{account.name}] Placing BUY order for ${amount:.2f} of {symbol}")
             try:
-                order_id = self.client.place_buy_order(account_id, contract_id, amount)
-                
-                trade = Trade(
-                    account_id=account_id,
-                    action="Buy",
-                    symbol=SYMBOL,
-                    dollar_amount=amount,
-                    shares=quantity,
-                    order_id=order_id
-                )
-                self.trade_logger.log_trade(trade)
-                
+                order = client.submit_notional_buy(symbol, amount)
+                shares = self._estimate_shares(client, symbol, amount)
+                # amount is exact (it's what we requested); shares is an estimate from the latest quote
+                self._log_trade(account, "Buy", symbol, order, shares=shares, amount=amount)
             except OrderRejectionError as e:
-                raise  # Re-raise to be caught by the main exception handler
-        else:
-            self.logger.warning("Insufficient cash for purchase.")
-    
-    def _handle_bearish_signal(self, account_id: str, contract_id: int, price: float, current_position: float) -> None:
-        """Handle bearish signal by selling the symbol."""
+                self.logger.error(f"[{account.name}] Buy order rejected for {symbol}: {e}")
+                self.notifications.send_notification(account.name, Severity.ERROR, f"Buy order rejected for {symbol}: {e}")
 
-        if current_position > 0:
-            quantity = current_position
-            amount = quantity * price
-            self.logger.info(f"Placing SELL order for {quantity} shares of {SYMBOL}")
-            self.logger.info("-------------------------------------")
+    def _handle_bearish_signal(self, account: AccountConfig, client: AlpacaClient, positions: dict) -> None:
+        """Liquidate every open position in the account. Fire-and-forget, same as buys."""
+        sell_plan = plan_sell_all(positions)
+        if not sell_plan:
+            self.logger.info(f"[{account.name}] No positions to sell.")
+            return
 
+        for symbol in sell_plan:
+            shares = positions[symbol]
+            self.logger.info(f"[{account.name}] Placing SELL order for {shares} shares of {symbol}")
             try:
-                order_id = self.client.place_sell_order(account_id, contract_id, quantity)
-                
-                trade = Trade(
-                    account_id=account_id,
-                    action="Sell",
-                    symbol=SYMBOL,
-                    dollar_amount=amount,
-                    shares=quantity,
-                    order_id=order_id
-                )
-                self.trade_logger.log_trade(trade)
-                
+                order = client.close_position(symbol)
+                amount = self._estimate_amount(client, symbol, shares)
+                # shares is exact (the pre-trade position); amount is an estimate from the latest quote
+                self._log_trade(account, "Sell", symbol, order, shares=shares, amount=amount)
             except OrderRejectionError as e:
-                raise  # Re-raise to be caught by the main exception handler
+                self.logger.error(f"[{account.name}] Sell order rejected for {symbol}: {e}")
+                self.notifications.send_notification(account.name, Severity.ERROR, f"Sell order rejected for {symbol}: {e}")
 
-        else:
-            self.logger.info(f"No {SYMBOL} position to sell.")
+    def _estimate_shares(self, client: AlpacaClient, symbol: str, amount: float) -> float:
+        """Estimate share count for a notional buy from the latest quote. Never
+        raises - a failed quote lookup shouldn't hide that the order was submitted."""
+        try:
+            price = client.get_price(symbol)
+            return amount / price if price else 0.0
+        except Exception as e:
+            self.logger.warning(f"Failed to estimate shares for {symbol}: {e}")
+            return 0.0
 
-    def _get_ibkr_commission(self, quantity: float, price: float, commission_type: str) -> float:
-        """Get IBKR Pro commission estimate."""
+    def _estimate_amount(self, client: AlpacaClient, symbol: str, shares: float) -> float:
+        """Estimate dollar amount for a share-based sell from the latest quote. Never
+        raises - a failed quote lookup shouldn't hide that the order was submitted."""
+        try:
+            return shares * client.get_price(symbol)
+        except Exception as e:
+            self.logger.warning(f"Failed to estimate amount for {symbol}: {e}")
+            return 0.0
 
-        trade_value = quantity * price
-
-        if commission_type.upper() == "TIERED":
-            commission = quantity * TIERED_RATE_PER_SHARE
-            commission = max(commission, TIERED_MIN_COMMISSION)
-            commission = min(commission, trade_value * TIERED_MAX_COMMISSION_PCT)
-
-        elif commission_type.upper() == "FIXED":
-            commission = quantity * FIXED_RATE_PER_SHARE
-            commission = max(commission, FIXED_MIN_COMMISSION)
-
-        else:
-            raise ValueError("Invalid commission_type. Must be 'TIERED' or 'FIXED'.")
-
-        return round(commission, 2)
+    def _log_trade(self, account: AccountConfig, action: str, symbol: str, order, shares: float, amount: float) -> None:
+        """Record a submitted (not necessarily filled) trade."""
+        trade = Trade(
+            account_id=account.name,
+            action=action,
+            symbol=symbol,
+            dollar_amount=amount,
+            shares=shares,
+            order_id=str(order.id),
+        )
+        self.trade_logger.log_trade(trade)

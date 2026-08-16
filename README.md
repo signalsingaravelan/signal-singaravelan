@@ -1,278 +1,197 @@
-# Automated Trading Bot - NASDAQ 100 Index Monitor
+# Signal Singaravelan — Alpaca Trading Bot
 
-A sophisticated Python-based automated trading system that implements the "NASDAQ 100 Index Monitor" strategy for Interactive Brokers. The system uses technical analysis to generate trading signals and automatically executes trades on TQQQ (ProShares UltraPro QQQ ETF).
+An automated trading system that runs a NASDAQ-100 technical-analysis strategy (IBD Follow-Through-Day / "Black Dot" / "Red Dot" signals on QQQ) once per invocation and, on a bullish or bearish signal, trades a configurable set of tickers across one or more independent [Alpaca](https://alpaca.markets) brokerage accounts.
 
-## 🏗️ System Architecture
-
-The trading bot consists of four core components working together:
+## Architecture
 
 ```
-execute-trade.py (Entry Point)
+execute-trade.py (entry point)
        ↓
-   trader.py (Orchestrator)
+   Trader (orchestrator)
        ↓
-   ┌─────────────────┬─────────────────┐
-   ↓                 ↓                 ↓
-strategy.py      ibkr_client.py    AWS Services
-(Signal Gen)     (Broker API)      (S3, CloudWatch, SES)
+   strategy.get_signal()  ──────────► one Signal per run (BULLISH / BEARISH / CLOSED)
+       ↓
+   accounts.yaml  ──────► [AccountConfig, ...]  (only enabled accounts)
+       ↓  for each account, independently
+   portfolio.py  ──────► cash + allocation % → buy plan, or open positions → sell-all plan
+       ↓
+   AlpacaClient (that account's own API key/secret)
+       ↓
+   TradeLogger / NotificationService  ──────► S3 Excel log, email/Telegram, keyed by account name
 ```
 
-## 📁 Project Structure
+- **Strategy** (`strategy.py`) is entirely broker- and account-independent: it decides BULLISH/BEARISH/CLOSED once per run from QQQ price/volume history, regardless of how many accounts are configured.
+- **Portfolio** (`core/portfolio.py`) turns an account's available cash and its configured ticker percentages into a concrete buy plan (or turns its open positions into a sell-everything plan) — pure functions with no broker calls.
+- **Broker execution** (`clients/alpaca_client.py`) is the only layer that talks to Alpaca. Swapping brokers in the future means replacing this one file/class.
+
+## Project Structure
 
 ```
-├── ibeam/                          # IBeam configuration
-│   ├── env.list                    # IBKR credentials (create this file)
-│   └── README.md                   # IBeam setup instructions
-├── trader-bot/                     # Main trading application
-│   ├── algo_trader/                # Core trading package
-│   │   ├── clients/                # External service clients
-│   │   │   └── ibkr_client.py      # Interactive Brokers API client
-│   │   ├── core/                   # Core trading logic
-│   │   │   ├── strategy.py         # NASDAQ 100 Index Monitor strategy
-│   │   │   └── trader.py           # Main trading orchestrator
-│   │   ├── logging/                # Logging infrastructure
-│   │   │   ├── cloudwatch_logger.py
-│   │   │   └── trade_logger.py
-│   │   ├── models/                 # Data models
-│   │   │   ├── enums.py           # Signal and severity enums
-│   │   │   └── trade.py           # Trade data model
-│   │   ├── notifications/          # Notification services
-│   │   │   └── notification_service.py
-│   │   └── utils/                  # Utilities
-│   │       ├── config.py          # Configuration settings
-│   │       └── decorators.py      # Retry decorator
-│   ├── execute-trade.py           # Application entry point
-│   ├── Dockerfile                 # Container configuration
-│   └── requirements.txt           # Python dependencies
-├── compose.yaml                   # Docker Compose configuration
-└── README.md                      # This file
+trader-bot/
+├── execute-trade.py                 # Entry point
+├── accounts.yaml                    # Multi-account / ticker-allocation configuration
+├── .env.example                     # Documents required credential env vars
+├── requirements.txt
+├── Dockerfile
+├── tests/                           # pytest unit tests
+└── algo_trader/
+    ├── core/
+    │   ├── strategy.py              # Signal generation (NASDAQ-100 / IBD FTD)
+    │   ├── portfolio.py             # Cash + allocation % → order plan
+    │   └── trader.py                # Orchestrator: signal → per-account loop → broker
+    ├── clients/
+    │   └── alpaca_client.py         # Alpaca Trading + Market Data API wrapper
+    ├── config/
+    │   └── account_config.py        # accounts.yaml loader/validator
+    ├── models/
+    │   ├── enums.py                 # Signal, Severity
+    │   └── trade.py                 # Trade record
+    ├── logging/
+    │   ├── cloudwatch_logger.py     # Console + CloudWatch logging
+    │   └── trade_logger.py          # Trade history Excel workbook in S3
+    ├── notifications/
+    │   └── notification_service.py  # Email (SES) + Telegram alerts
+    └── utils/
+        ├── config.py                # Non-account settings (AWS, retry, thresholds)
+        └── decorators.py            # Generic retry decorator
+compose.yaml                         # Single-service Docker Compose config
 ```
 
-## 🎯 Trading Strategy: NASDAQ 100 Index Monitor
+## Prerequisites
 
-The system implements a sophisticated technical analysis strategy based on market volatility and volume indicators:
+- One or more [Alpaca](https://alpaca.markets) brokerage accounts, each with its own API key/secret pair (generated from the Alpaca dashboard — paper or live). Alpaca has no concept of sub-accounts under a single key; every account you want to trade needs its own credential pair.
+- Python 3.11+ (if running locally) or Docker.
+- An AWS account for S3 (trade logs, cached market data) and, optionally, CloudWatch/SES/Secrets Manager.
 
-### Signal Types
-- **🟢 BULLISH**: No warning signals in past 10 trading days → BUY
-- **🔴 BEARISH**: Warning signal present today → SELL immediately  
-- **🟡 NEUTRAL**: Warning signal in past 10 days but not today → SELL
-- **⚫ CLOSED**: Market closed → No action
+## Installation & Setup
 
-### Technical Indicators
+### 1. Install dependencies
 
-#### Black Dot ⚫ (Sudden Heavy Selling)
-Indicates short-term bearish risk (similar to 2020 COVID crash):
-- Today's close < 50-day moving average
-- All conditions met on same day within past 5 trading days:
-  - True Range > 1.5 × Average True Range (volatility spike)
-  - Closing Range < 10% (closes near daily low)
-  - Volume > 50-day moving average (high selling pressure)
-
-#### Red Dot 🔴 (Ongoing Weakness)  
-Indicates medium-term bearish risk (similar to 2022 bear market):
-- Today's close < 50-day moving average
-- Up/Down Volume Ratio < 1 for 3+ times in past 5 trading days
-
-## 🚀 Features
-
-### Core Functionality
-- **Automated Signal Generation**: Downloads NDX data and calculates technical indicators
-- **Smart Order Execution**: Handles both cash-based buying and share-based selling
-- **Risk Management**: Built-in cash buffers and position validation
-- **Fractional Share Support**: Supports fractional share trading
-- **Order Rejection Handling**: Comprehensive error handling for failed orders
-
-### AWS Cloud Integration
-- **S3 Storage**: Automatic upload of trade logs and market analysis
-- **CloudWatch Logging**: Account-specific log groups with detailed execution logs
-- **SES Notifications**: Email alerts for trade execution and errors
-- **Secrets Manager**: Secure storage of sensitive credentials
-
-### Monitoring & Reporting
-- **Excel Reports**: Detailed market analysis with all technical indicators
-- **Trade Logging**: Complete audit trail of all trading activities
-- **Real-time Notifications**: Telegram and email alerts
-- **Error Tracking**: Comprehensive error logging and alerting
-
-## 📋 Prerequisites
-
-- **Interactive Brokers Account**: Active trading account with API access
-- **Docker & Docker Compose**: For containerized deployment
-- **AWS Account**: For cloud services (S3, CloudWatch, SES)
-- **Python 3.11+**: If running locally
-
-## 🛠️ Installation & Setup
-
-### 1. Clone Repository
 ```bash
-git clone <repository-url>
-cd trading-bot
+cd trader-bot
+pip install -r requirements.txt
 ```
 
-### 2. Configure IBKR Credentials
-Create `ibeam/env.list` with your Interactive Brokers credentials:
+### 2. Configure accounts
+
+Copy `.env.example` to `.env` and fill in the API key/secret for each account you enable in `accounts.yaml`:
+
 ```bash
-IBEAM_ACCOUNT=your_account_id
-IBEAM_PASSWORD=your_password
+cp .env.example .env
 ```
 
-### 3. Configure AWS Credentials
-Ensure AWS credentials are available:
+Edit `trader-bot/accounts.yaml` to define which accounts trade and how each one allocates its cash. Example:
+
+```yaml
+accounts:
+  - name: taxable
+    enabled: true
+    paper: true
+    api_key_env: ALPACA_API_KEY_TAXABLE
+    api_secret_env: ALPACA_API_SECRET_TAXABLE
+    allocations:
+      TQQQ: 100
+
+  - name: roth-ira
+    enabled: true
+    paper: true
+    api_key_env: ALPACA_API_KEY_ROTH_IRA
+    api_secret_env: ALPACA_API_SECRET_ROTH_IRA
+    allocations:
+      VTI: 20
+      VOO: 20
+      VUG: 30
+      VGT: 15
+      QQQ: 15
+```
+
+- `enabled: false` excludes an account from a run without deleting its config.
+- `paper: true/false` selects Alpaca's paper-trading or live-trading endpoint for that account. **New accounts should stay on `paper: true` until you've verified a few runs.**
+- `allocations` must sum to 100 for any enabled account — the system validates this at startup and refuses to run otherwise.
+- Adding, removing, or reallocating an account is a YAML edit only; no code changes required.
+
+### 3. Configure AWS credentials
+
 ```bash
-# Option 1: AWS CLI configured
 aws configure
-
-# Option 2: Environment variables
+# or
 export AWS_ACCESS_KEY_ID=your_access_key
 export AWS_SECRET_ACCESS_KEY=your_secret_key
 export AWS_DEFAULT_REGION=us-east-1
 ```
 
-### 4. Update Configuration
-Edit `trader-bot/algo_trader/utils/config.py` with your settings:
-- S3 bucket names
-- Email addresses for notifications
-- Telegram chat IDs
-- CloudWatch log groups
+### 4. Review non-account settings
 
-## 🚀 Usage
+`trader-bot/algo_trader/utils/config.py` holds settings that aren't per-account: S3 bucket/prefix, CloudWatch log group, SES from/to addresses, Telegram chat ID, Massive.com API key, and retry tuning.
 
-### Local Development
+## Usage
+
+### Local
+
 ```bash
-# Start IBeam gateway
-docker-compose up -d ibeam
-
-# Run trading bot once
-docker-compose run --rm trader-bot
-
-# View logs
-docker-compose logs ibeam
-docker-compose logs trader-bot
+cd trader-bot
+python execute-trade.py
 ```
 
-### Production Deployment
-```bash
-# Build and run
-docker-compose up -d ibeam
-docker-compose run --rm trader-bot
+### Docker
 
-# Schedule daily execution (example cron)
+```bash
+docker-compose build trader-bot
+docker-compose run --rm trader-bot
+```
+
+### Scheduling
+
+Nothing in this repo schedules runs automatically. Trigger `execute-trade.py` (or `docker-compose run --rm trader-bot`) however fits your environment — e.g. an external cron entry:
+
+```bash
 0 13 * * 1-5 cd /path/to/project && docker-compose run --rm trader-bot
 ```
 
-## 📊 Monitoring & Logs
+## How a Run Works
 
-### CloudWatch Integration
-- Account-specific log groups: `/aws/ecs/trader-bot-{account_id}`
-- Structured logging with timestamps and severity levels
-- Error tracking and alerting
+1. `strategy.get_signal()` computes one `Signal` (`BULLISH`, `BEARISH`, or `CLOSED`) from QQQ price/volume history — cached in S3, backfilled from Massive.com when stale. On `CLOSED` (non-trading day), no account is touched.
+2. For every account with `enabled: true` in `accounts.yaml`, independently:
+   - **Bullish**: fetch that account's buying power, split it across its configured tickers per their percentages (skipping any ticker whose share falls below Alpaca's minimum notional order size), and submit a dollar-denominated market buy for each.
+   - **Bearish**: liquidate every open position in the account, regardless of whether it's part of the configured allocation — the goal is 100% cash.
+   - Orders are submitted and logged immediately without waiting for a fill — the system is designed to run before market open, so day market orders simply queue until the exchange opens. The logged share count (buys) or dollar amount (sells) is an estimate from the latest quote, not the confirmed fill; check Alpaca's dashboard/order history for actual execution price and time.
+3. A failure or order rejection in one account is logged and notified without stopping the other accounts from processing.
 
-### S3 Storage
-- **Trade Logs**: `s3://signal-singaravelan-{account_id}/trade-history/`
-- **Market Data**: `s3://signal-singaravelan-{account_id}/trade-history/ndx-price-history.csv`
-- **Analysis Reports**: `s3://signal-singaravelan-{account_id}/trade-history/market-outlook.xlsx`
+## Paper vs. Live Trading
 
-### Notifications
-- **Email**: Trade confirmations and error alerts via AWS SES
-- **Telegram**: Real-time notifications via bot integration
+Each account's `paper` flag in `accounts.yaml` controls this independently — you can run some accounts on paper and others live in the same deployment. `TradingClient(..., paper=True)` routes to Alpaca's paper-trading environment automatically; no separate credentials or URLs to manage beyond the account's own API key/secret (Alpaca paper and live accounts use different key pairs).
 
-## 🔧 Configuration
+## Environment Variables / Secrets
 
-### Key Configuration Files
-- `trader-bot/algo_trader/utils/config.py`: Main configuration
-- `ibeam/env.list`: IBKR credentials
-- `compose.yaml`: Docker services configuration
+| Variable | Purpose |
+|---|---|
+| `ALPACA_API_KEY_<NAME>` / `ALPACA_API_SECRET_<NAME>` | One pair per account in `accounts.yaml`, matching its `api_key_env`/`api_secret_env` |
+| AWS credentials (via `aws configure`, env vars, or an IAM role) | S3 (trade logs, market data cache), CloudWatch, SES, Secrets Manager |
+| `TELEGRAM_CHAT_ID` (optional) | Overrides the default configured in `config.py` |
 
-### Customizable Parameters
-- **Trading Symbol**: Currently set to TQQQ
-- **Commission Structure**: TIERED or FIXED
-- **Cash Thresholds**: Minimum cash and buffer amounts
-- **Technical Indicators**: Lookback periods and thresholds
+The Telegram bot token is read from AWS Secrets Manager (`SignalSingaravelanSecrets`, key `TelegramBotToken`), not an environment variable.
 
-## 🧪 Testing
+## Testing
 
-### Paper Trading
-Always test with IBKR paper trading account before live deployment:
-1. Set up paper trading account in IBKR
-2. Update credentials in `ibeam/env.list`
-3. Run system in paper trading mode
-4. Verify all functionality works correctly
-
-### Local Testing
 ```bash
-# Test individual components
+cd trader-bot
+pip install pytest
 python -m pytest tests/
-
-# Test strategy signals
-python -c "from algo_trader.core.strategy import TradingStrategy; s = TradingStrategy(); print(s.get_signal('TEST'))"
-
-# Test IBKR connection
-docker-compose up -d ibeam
-# Wait for authentication, then test API calls
 ```
 
-## 📈 Performance & Risk Management
+The suite covers allocation math (`portfolio.py`), `accounts.yaml` loading/validation, and the trading orchestration logic (`trader.py`) with the Alpaca client mocked — no network or credentials required to run it. Strategy logic (`strategy.py`) isn't covered by automated tests; verify signal changes manually against known historical data.
 
-### Built-in Risk Controls
-- **Minimum Cash Threshold**: $5 minimum before placing trades
-- **Cash Buffer**: $1 buffer to prevent overdraft
-- **Position Validation**: Checks existing positions before selling
-- **Order Rejection Handling**: Graceful handling of broker rejections
-- **Market Calendar**: Only trades on valid trading days
+## AWS Deployment
 
-### Commission Management
-- **TIERED**: $0.0035/share, min $0.35, max 1% of trade value
-- **FIXED**: $0.005/share, min $1.00
-- Automatic commission calculation and deduction
+Deployment target is AWS; no infrastructure-as-code exists in this repo yet. Current AWS integrations (all via `boto3`, created lazily at runtime — no separate provisioning step):
 
-## 🔍 Troubleshooting
+- **S3**: cached QQQ price history, market-outlook analysis workbook, and per-account trade-history Excel logs (bucket names derived from `S3_BUCKET_NAME` in `config.py`).
+- **CloudWatch Logs**: per-account log groups (falls back to console-only logging if credentials/CloudWatch are unavailable).
+- **SES**: trade/error email notifications.
+- **Secrets Manager**: Telegram bot token.
 
-### Common Issues
-1. **Authentication Failures**: Check IBKR credentials and account status
-2. **Order Rejections**: Verify account has sufficient funds and permissions
-3. **Market Data Issues**: Ensure market is open and symbol is valid
-4. **AWS Permissions**: Verify IAM roles have required permissions
+Whatever compute environment runs `execute-trade.py` (EC2, ECS, Lambda, etc.) needs IAM permissions for these services and the account-specific `ALPACA_API_KEY_*`/`ALPACA_API_SECRET_*` env vars populated (e.g. from Secrets Manager/Parameter Store at deploy time).
 
-### Debug Mode
-Enable detailed logging by setting log level to DEBUG in configuration.
+## Disclaimer
 
-## 📄 Dependencies
-
-### Core Python Packages
-- `requests==2.32.5`: HTTP client for IBKR API
-- `pandas==3.0.0`: Data analysis and technical indicators
-- `boto3==1.42.36`: AWS services integration
-- `openpyxl==3.1.5`: Excel report generation
-- `pandas_market_calendars==5.3.0`: Market calendar functionality
-
-See `trader-bot/requirements.txt` for complete dependency list.
-
-## ⚠️ Disclaimer
-
-**IMPORTANT**: This software is for educational and research purposes only. 
-
-- Trading involves substantial risk of loss and is not suitable for all investors
-- Past performance does not guarantee future results
-- Always test thoroughly with paper trading before using real money
-- The authors are not responsible for any financial losses
-- Use at your own risk and ensure compliance with all applicable regulations
-
-## 📜 License
-
-This project is provided as-is for educational purposes. Use at your own risk.
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Submit a pull request
-
-## 📞 Support
-
-For issues and questions:
-1. Check the troubleshooting section
-2. Review CloudWatch logs for detailed error information
-3. Verify all configuration settings
-4. Test with paper trading account first
+This software is for educational and research purposes only. Trading involves substantial risk of loss and is not suitable for all investors. Always test thoroughly with paper trading before using real money. The authors are not responsible for any financial losses. Use at your own risk and ensure compliance with all applicable regulations.

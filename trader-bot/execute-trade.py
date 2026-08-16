@@ -1,4 +1,4 @@
-"""Main entry point for the IBKR trading application."""
+"""Main entry point for the Alpaca trading application."""
 
 from algo_trader import Trader
 

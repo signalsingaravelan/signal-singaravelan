@@ -1,12 +1,11 @@
-"""Configuration settings for the IBKR trading client."""
+"""Configuration settings for the Alpaca trading client."""
 
-# IBKR Web API Configuration
-BASE_URL = "https://127.0.0.1:5000/v1/api"
-VERIFY_SSL = False  # self-signed cert
+# Accounts Configuration
+ACCOUNTS_CONFIG_PATH = "accounts.yaml"
 
 # Trading Configuration
-SYMBOL = "TQQQ"
-COMMISSION_TYPE = "TIERED"
+MIN_CASH_THRESHOLD = 5.0   # Minimum cash required to place a trade
+MIN_ORDER_AMOUNT = 1.0     # Alpaca's minimum notional order size
 
 # Retry Configuration
 MAX_RETRY_ATTEMPTS = 3
@@ -22,10 +21,13 @@ S3_BUCKET_NAME = "signal-singaravelan"  # Replace with your S3 bucket name
 S3_REGION = "us-east-1"
 S3_KEY_PREFIX = "trade-history/"  # Optional prefix for organizing files
 
+# Massive.com Configuration
+MASSIVE_API_KEY = "8xIyTYAdFkzyMbpspyDDMjjqyx98PhnZ"
+
 # Notification Configuration
 # Email settings (using AWS SES)
 EMAIL_FROM = "signalsingaravelan@gmail.com"  # Replace with your verified SES email
-EMAIL_TO = "asubbu87@gmail.com"        # Replace with your email
+EMAIL_TO = "ac.vino@gmail.com"        # Replace with your email
 EMAIL_REGION = "us-east-1"
 
 # Telegram settings

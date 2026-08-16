@@ -1,0 +1,43 @@
+# Multi-account trading configuration.
+#
+# Each entry is one Alpaca brokerage account. Every account needs its own
+# Alpaca API key/secret pair (Alpaca has no concept of sub-accounts under a
+# single key) - set those via the environment variables named below (see
+# .env.example). Allocation percentages for an enabled account must sum to
+# 100.
+#
+# Add, remove, or reconfigure accounts here without touching any code.
+
+  # - name: taxable-leveraged-etf
+  #   enabled: true
+  #   paper: true # Set to false only when ready to trade with real money
+  #   api_key_env: ALPACA_API_KEY_TAXABLE_LETF
+  #   api_secret_env: ALPACA_API_SECRET_TAXABLE_LETF
+  #   allocations:
+  #     TQQQ: 100
+
+  # - name: taxable-index-etf
+  #   enabled: false
+  #   paper: true
+  #   api_key_env: ALPACA_API_KEY_TAXABLE_IETF
+  #   api_secret_env: ALPACA_API_KEY_TAXABLE_IETF
+  #   allocations:
+  #     VTI: 20
+  #     VOO: 20
+  #     VUG: 30
+  #     VGT: 15
+  #     QQQ: 15
+
+accounts:
+
+  - name: roth-ira
+    enabled: true
+    paper: true
+    api_key_env: ALPACA_API_KEY_ROTH_IRA
+    api_secret_env: ALPACA_API_SECRET_ROTH_IRA
+    allocations:
+      VTI: 20
+      VOO: 20
+      VUG: 30
+      VGT: 15
+      QQQ: 15

@@ -62,11 +62,14 @@ class TradingStrategy:
         self._bucket_initialized = False
 
     @retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF)
-    def get_signal(self, account_id: str) -> Signal:
-        """Check market health using NDX price and volume history."""
+    def get_signal(self) -> Signal:
+        """Check market health using QQQ price and volume history.
+
+        Computed once per run, independent of any trading account — the same
+        market signal is applied to every configured account.
+        """
         try:
-            # Initialize S3 bucket with account ID
-            self._initialize_bucket(account_id)
+            self._initialize_bucket()
 
             today = pd.Timestamp.now(tz='US/Eastern').date()
             # today = date(2026, 3, 30) # override for testing purposes
@@ -77,7 +80,7 @@ class TradingStrategy:
                 signal = Signal.CLOSED
                 message = f"Market Signal: {signal.name} as of {today}"
                 self.logger.info(message)
-                self.notifications.send_notification(account_id, Severity.INFO, message)
+                self.notifications.send_notification("N/A", Severity.INFO, message)
                 return signal
 
             self.logger.info("Loading QQQ price history from S3")
@@ -309,20 +312,19 @@ class TradingStrategy:
 
             message = f"Market Signal: {signal.name} as of {asof_date}"
             self.logger.info(message)
-            self.notifications.send_notification(account_id, Severity.INFO, message)
+            self.notifications.send_notification("N/A", Severity.INFO, message)
             return signal
 
         except Exception as e:
             self.logger.error(f"Failed to get market signal: {e}")
             raise  # Re-raise the original exception
 
-    def _initialize_bucket(self, account_id: str) -> None:
-        """Initialize bucket with account-specific name on first use."""
+    def _initialize_bucket(self) -> None:
+        """Initialize the shared market-data bucket on first use."""
         if self._bucket_initialized:
             return
 
-        # Append account ID to bucket name (lowercase for S3 naming rules)
-        self.bucket_name = f"{S3_BUCKET_NAME}-{account_id.lower()}"
+        self.bucket_name = f"{S3_BUCKET_NAME}-market-data"
         self._ensure_bucket_exists()
         self._bucket_initialized = True
 

@@ -1,4 +1,4 @@
-"""Algo Trading Bot - IBKR automated trading application."""
+"""Algo Trading Bot - Alpaca automated trading application."""
 
 from algo_trader.core.trader import Trader
 
