@@ -221,6 +221,7 @@ aws-credentials
 .vscode/launch.json
 .vscode/extensions.json
 
-# Docs
+# VC Custom List
 .claude/
 .docs/
+accounts.yaml
