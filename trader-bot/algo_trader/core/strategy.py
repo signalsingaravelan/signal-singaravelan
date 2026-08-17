@@ -282,8 +282,8 @@ class TradingStrategy:
             df.to_excel(excel_filename, index=False)
             
             # Upload both files to S3
-            csv_s3_key = f"{S3_KEY_PREFIX}{csv_filename}"
-            excel_s3_key = f"{S3_KEY_PREFIX}{excel_filename}"
+            csv_s3_key = f"{csv_filename}"
+            excel_s3_key = f"{excel_filename}"
             
             csv_uploaded = self._upload_file_to_s3(csv_filename, csv_s3_key)
             excel_uploaded = self._upload_file_to_s3(excel_filename, excel_s3_key)
