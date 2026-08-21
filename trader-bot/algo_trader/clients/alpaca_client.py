@@ -108,6 +108,15 @@ class AlpacaClient:
             dates = [datetime.fromtimestamp(ts) for ts in history.timestamp]
             values = list(history.equity)
 
+            # Trim leading zero-equity entries (e.g. days before the account was funded)
+            # so returns are calculated from the account's actual starting balance.
+            first_funded = next((i for i, v in enumerate(values) if v != 0), None)
+            if first_funded is None:
+                self.logger.warning(f"[{self.account_name}] No non-zero equity in portfolio history - skipping performance report")
+                return
+            dates = dates[first_funded:]
+            values = values[first_funded:]
+
             # Simulate buy and hold using beginning balance
             dates_bh_spy, values_bh_spy = self._get_buy_and_hold_series("SPY", values[0], dates[0])
             dates_bh_qqq, values_bh_qqq = self._get_buy_and_hold_series("QQQ", values[0], dates[0])
