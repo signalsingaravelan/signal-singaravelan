@@ -24,6 +24,9 @@ S3_KEY_PREFIX = "trade-history/"  # Optional prefix for organizing files
 # Massive.com Configuration
 MASSIVE_API_KEY = ""
 
+# Performance Configuration
+PERFORMANCE_START_DATE = ""  # Set to the date the account was funded
+
 # Notification Configuration
 # Email settings (using AWS SES)
 EMAIL_FROM = ""  # Replace with your verified SES email

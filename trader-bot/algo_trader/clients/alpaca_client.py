@@ -17,7 +17,7 @@ from alpaca.data.timeframe import TimeFrame
 from alpaca.common.exceptions import APIError
 
 from algo_trader.logging import get_logger
-from algo_trader.utils.config import MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF
+from algo_trader.utils.config import MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF, PERFORMANCE_START_DATE
 from algo_trader.utils.decorators import retry
 
 
@@ -95,10 +95,13 @@ class AlpacaClient:
             raise OrderRejectionError(str(e)) from e
 
     def get_performance(self, notifications_service) -> None:
-        """Get account performance for the last 1 year, plot it, and send via Telegram."""
+        """Get account performance since PERFORMANCE_START_DATE, plot it, and send via Telegram."""
         try:
             history = self.trading.get_portfolio_history(
-                GetPortfolioHistoryRequest(period="1Y", timeframe="1D")
+                GetPortfolioHistoryRequest(
+                    start=datetime.fromisoformat(PERFORMANCE_START_DATE),
+                    timeframe="1D",
+                )
             )
 
             if not history.timestamp or not history.equity:
@@ -108,14 +111,7 @@ class AlpacaClient:
             dates = [datetime.fromtimestamp(ts) for ts in history.timestamp]
             values = list(history.equity)
 
-            # Trim leading zero-equity entries (e.g. days before the account was funded)
-            # so returns are calculated from the account's actual starting balance.
-            first_funded = next((i for i, v in enumerate(values) if v != 0), None)
-            if first_funded is None:
-                self.logger.warning(f"[{self.account_name}] No non-zero equity in portfolio history - skipping performance report")
-                return
-            dates = dates[first_funded:]
-            values = values[first_funded:]
+            start_date_label = datetime.fromisoformat(PERFORMANCE_START_DATE).strftime("%b %d, %Y")
 
             # Simulate buy and hold using beginning balance
             dates_bh_spy, values_bh_spy = self._get_buy_and_hold_series("SPY", values[0], dates[0])
@@ -136,7 +132,7 @@ class AlpacaClient:
             if values_bh_qqq:
                 ax.plot(dates_bh_qqq, values_bh_qqq, linewidth=2, color='blue', linestyle='--', label='Buy & Hold QQQ')
 
-            ax.set_title('Account Performance - Last 1 Year', fontsize=16, fontweight='bold')
+            ax.set_title(f'Account Performance - Since {start_date_label}', fontsize=16, fontweight='bold')
             ax.set_xlabel('Date', fontsize=12)
             ax.set_ylabel('Account Equity ($)', fontsize=12)
             ax.yaxis.set_tick_params(labelleft=True, labelright=True)
@@ -165,7 +161,7 @@ class AlpacaClient:
                 f"{'Net Value':<18}{f'${values[-1]:,.2f}':>13}\n"
                 f"{'Buy & Hold SPY':<18}{f'${values_bh_spy[-1]:,.2f}' if values_bh_spy else 'N/A':>13}\n"
                 f"{'Buy & Hold QQQ':<18}{f'${values_bh_qqq[-1]:,.2f}' if values_bh_qqq else 'N/A':>13}\n\n"
-                f"{'Returns (1Y)'}\n"
+                f"{'Returns (Since ' + start_date_label + ')'}\n"
                 f"{'-'*35}\n"
                 f"{_fmt_row('Account', account_pct_return)}\n"
                 f"{_fmt_row('Buy & Hold SPY', buyhold_spy_pct_return)}\n"
