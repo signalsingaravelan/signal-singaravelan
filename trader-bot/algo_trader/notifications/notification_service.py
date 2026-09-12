@@ -1,6 +1,5 @@
 """Notification service for trade alerts via email and Telegram."""
 
-import json
 import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -14,8 +13,9 @@ from algo_trader.models import Trade, Severity
 from algo_trader.logging import get_logger
 from algo_trader.utils.config import (
     EMAIL_FROM, EMAIL_TO, EMAIL_REGION,
-    TELEGRAM_CHAT_ID, SECRETS_MANAGER_SECRET_NAME, SECRETS_MANAGER_REGION
+    TELEGRAM_CHAT_ID,
 )
+from algo_trader.utils.secrets import get_secret_value
 
 class NotificationService:
     """Handles sending trade notifications via email and Telegram."""
@@ -35,45 +35,17 @@ class NotificationService:
             return None
     
     def _get_telegram_token(self) -> Optional[str]:
-        """Fetch Telegram bot token from AWS Secrets Manager."""
+        """Read Telegram bot token from the shared Secrets Manager cache."""
         try:
-            # Create a Secrets Manager client
-            secrets_client = boto3.client("secretsmanager", region_name=SECRETS_MANAGER_REGION)
-            
-            # Retrieve the secret
-            response = secrets_client.get_secret_value(SecretId=SECRETS_MANAGER_SECRET_NAME)
-            
-            # Parse the secret JSON
-            secret_data = json.loads(response["SecretString"])
-            
-            # Extract the Telegram bot token
-            telegram_token = secret_data.get("TelegramBotToken")
+            telegram_token = get_secret_value("TELEGRAM_BOT_TOKEN")
             
             if telegram_token:
                 self.logger.info("Successfully retrieved Telegram bot token from Secrets Manager")
                 return telegram_token
             else:
-                self.logger.error("TelegramBotToken key not found in secret")
+                self.logger.error("TELEGRAM_BOT_TOKEN key not found in secret")
                 return None
                 
-        except ClientError as e:
-            error_code = e.response["Error"]["Code"]
-            if error_code == "ResourceNotFoundException":
-                self.logger.error(f"Secret '{SECRETS_MANAGER_SECRET_NAME}' not found in Secrets Manager")
-            elif error_code == "InvalidRequestException":
-                self.logger.error("Invalid request to Secrets Manager")
-            elif error_code == "InvalidParameterException":
-                self.logger.error("Invalid parameter for Secrets Manager request")
-            elif error_code == "DecryptionFailureException":
-                self.logger.error("Failed to decrypt secret from Secrets Manager")
-            elif error_code == "InternalServiceErrorException":
-                self.logger.error("Internal error in Secrets Manager service")
-            else:
-                self.logger.error(f"Secrets Manager error: {e}")
-            return None
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Failed to parse secret JSON: {e}")
-            return None
         except Exception as e:
             self.logger.error(f"Unexpected error retrieving Telegram token: {e}")
             return None

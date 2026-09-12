@@ -1,8 +1,6 @@
 services:
   trader-bot:
     build: ./trader-bot
-    env_file:
-      - ./trader-bot/.env
     volumes:
-      # Uncomment to use locally-configured AWS credentials
+      # Local AWS credentials for Secrets Manager, S3, CloudWatch, SES
       - ~/.aws:/root/.aws:ro

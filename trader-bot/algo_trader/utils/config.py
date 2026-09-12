@@ -21,9 +21,6 @@ S3_BUCKET_NAME = "signal-singaravelan"  # Replace with your S3 bucket name
 S3_REGION = "us-east-1"
 S3_KEY_PREFIX = "trade-history/"  # Optional prefix for organizing files
 
-# Massive.com Configuration
-MASSIVE_API_KEY = ""
-
 # Performance Configuration
 PERFORMANCE_START_DATE = ""  # Set to the date the account was funded
 

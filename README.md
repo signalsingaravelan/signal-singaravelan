@@ -30,7 +30,6 @@ execute-trade.py (entry point)
 trader-bot/
 ├── execute-trade.py                 # Entry point
 ├── accounts.yaml                    # Multi-account / ticker-allocation configuration
-├── .env.example                     # Documents required credential env vars
 ├── requirements.txt
 ├── Dockerfile
 ├── tests/                           # pytest unit tests
@@ -53,6 +52,7 @@ trader-bot/
     │   └── notification_service.py  # Email (SES) + Telegram alerts
     └── utils/
         ├── config.py                # Non-account settings (AWS, retry, thresholds)
+        ├── secrets.py               # AWS Secrets Manager loader / cache
         └── decorators.py            # Generic retry decorator
 compose.yaml                         # Single-service Docker Compose config
 ```
@@ -61,7 +61,7 @@ compose.yaml                         # Single-service Docker Compose config
 
 - One or more [Alpaca](https://alpaca.markets) brokerage accounts, each with its own API key/secret pair (generated from the Alpaca dashboard — paper or live). Alpaca has no concept of sub-accounts under a single key; every account you want to trade needs its own credential pair.
 - Python 3.11+ (if running locally) or Docker.
-- An AWS account for S3 (trade logs, cached market data) and, optionally, CloudWatch/SES/Secrets Manager.
+- An AWS account for S3 (trade logs, cached market data), Secrets Manager (API keys), and optionally CloudWatch/SES.
 
 ## Installation & Setup
 
@@ -73,12 +73,6 @@ pip install -r requirements.txt
 ```
 
 ### 2. Configure accounts
-
-Copy `.env.example` to `.env` and fill in the API key/secret for each account you enable in `accounts.yaml`:
-
-```bash
-cp .env.example .env
-```
 
 Edit `trader-bot/accounts.yaml` to define which accounts trade and how each one allocates its cash. Example:
 
@@ -108,9 +102,9 @@ accounts:
 - `enabled: false` excludes an account from a run without deleting its config.
 - `paper: true/false` selects Alpaca's paper-trading or live-trading endpoint for that account. **New accounts should stay on `paper: true` until you've verified a few runs.**
 - `allocations` must sum to 100 for any enabled account — the system validates this at startup and refuses to run otherwise.
-- Adding, removing, or reallocating an account is a YAML edit only; no code changes required.
+- `api_key_env` / `api_secret_env` name the JSON keys in Secrets Manager (and the env vars hydrated from them at startup). Adding, removing, or reallocating an account is a YAML edit only; no code changes required.
 
-### 3. Configure AWS credentials
+### 3. Configure AWS credentials and Secrets Manager
 
 ```bash
 aws configure
@@ -120,9 +114,26 @@ export AWS_SECRET_ACCESS_KEY=your_secret_key
 export AWS_DEFAULT_REGION=us-east-1
 ```
 
+Store all application secrets in the AWS Secrets Manager secret `SignalSingaravelanSecrets` (`us-east-1`) as a single JSON object. Example shape:
+
+```json
+{
+  "TELEGRAM_BOT_TOKEN": "...",
+  "MASSIVE_API_KEY": "...",
+  "ALPACA_API_KEY_TAXABLE": "...",
+  "ALPACA_API_SECRET_TAXABLE": "...",
+  "ALPACA_API_KEY_ROTH_IRA": "...",
+  "ALPACA_API_SECRET_ROTH_IRA": "..."
+}
+```
+
+Include one Alpaca key/secret pair for every account you enable in `accounts.yaml`, using the exact names from that account's `api_key_env` / `api_secret_env`. Paper and live accounts each need their own Alpaca key pair from the Alpaca dashboard.
+
+At startup, `execute-trade.py` loads this secret once and caches it. `ALPACA_*` keys are hydrated into the process environment for `accounts.yaml` credential resolution. `TELEGRAM_BOT_TOKEN` and `MASSIVE_API_KEY` are read from the same cache via `get_secret_value` when needed.
+
 ### 4. Review non-account settings
 
-`trader-bot/algo_trader/utils/config.py` holds settings that aren't per-account: S3 bucket/prefix, CloudWatch log group, SES from/to addresses, Telegram chat ID, Massive.com API key, and retry tuning.
+`trader-bot/algo_trader/utils/config.py` holds settings that aren't per-account: S3 bucket/prefix, CloudWatch log group, SES from/to addresses, Telegram chat ID, Secrets Manager secret name/region, and retry tuning. The Massive.com API key is loaded from Secrets Manager at runtime (not stored in `config.py`).
 
 ## Usage
 
@@ -163,13 +174,11 @@ Each account's `paper` flag in `accounts.yaml` controls this independently — y
 
 ## Environment Variables / Secrets
 
-| Variable | Purpose |
+| Source | Purpose |
 |---|---|
-| `ALPACA_API_KEY_<NAME>` / `ALPACA_API_SECRET_<NAME>` | One pair per account in `accounts.yaml`, matching its `api_key_env`/`api_secret_env` |
-| AWS credentials (via `aws configure`, env vars, or an IAM role) | S3 (trade logs, market data cache), CloudWatch, SES, Secrets Manager |
+| AWS Secrets Manager secret `SignalSingaravelanSecrets` | All app secrets in one JSON object: `TELEGRAM_BOT_TOKEN`, `MASSIVE_API_KEY`, and each account's `ALPACA_API_KEY_<NAME>` / `ALPACA_API_SECRET_<NAME>` (names must match `api_key_env` / `api_secret_env` in `accounts.yaml`) |
+| AWS credentials (via `aws configure`, env vars, or an IAM role) | Secrets Manager, S3 (trade logs, market data cache), CloudWatch, SES |
 | `TELEGRAM_CHAT_ID` (optional) | Overrides the default configured in `config.py` |
-
-The Telegram bot token is read from AWS Secrets Manager (`SignalSingaravelanSecrets`, key `TelegramBotToken`), not an environment variable.
 
 ## Testing
 
@@ -179,7 +188,7 @@ pip install pytest
 python -m pytest tests/
 ```
 
-The suite covers allocation math (`portfolio.py`), `accounts.yaml` loading/validation, and the trading orchestration logic (`trader.py`) with the Alpaca client mocked — no network or credentials required to run it. Strategy logic (`strategy.py`) isn't covered by automated tests; verify signal changes manually against known historical data.
+The suite covers allocation math (`portfolio.py`), `accounts.yaml` loading/validation, Secrets Manager loading (`secrets.py`), and the trading orchestration logic (`trader.py`) with the Alpaca client mocked — no network or credentials required to run it. Strategy logic (`strategy.py`) isn't covered by automated tests; verify signal changes manually against known historical data.
 
 ## AWS Deployment
 
@@ -188,9 +197,9 @@ Deployment target is AWS; no infrastructure-as-code exists in this repo yet. Cur
 - **S3**: cached QQQ price history, market-outlook analysis workbook, and per-account trade-history Excel logs (bucket names derived from `S3_BUCKET_NAME` in `config.py`).
 - **CloudWatch Logs**: per-account log groups (falls back to console-only logging if credentials/CloudWatch are unavailable).
 - **SES**: trade/error email notifications.
-- **Secrets Manager**: Telegram bot token.
+- **Secrets Manager**: single secret `SignalSingaravelanSecrets` holding Telegram, Massive, and all Alpaca API keys (loaded once at startup).
 
-Whatever compute environment runs `execute-trade.py` (EC2, ECS, Lambda, etc.) needs IAM permissions for these services and the account-specific `ALPACA_API_KEY_*`/`ALPACA_API_SECRET_*` env vars populated (e.g. from Secrets Manager/Parameter Store at deploy time).
+Whatever compute environment runs `execute-trade.py` (EC2, ECS, Lambda, etc.) needs IAM permissions for these services, including `secretsmanager:GetSecretValue` on `SignalSingaravelanSecrets`.
 
 ## Disclaimer
 

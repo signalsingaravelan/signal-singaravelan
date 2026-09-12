@@ -41,6 +41,7 @@ import pandas_market_calendars as mcal
 
 import os
 import requests
+from datetime import date
 
 import boto3
 from botocore.exceptions import ClientError
@@ -49,8 +50,9 @@ from algo_trader.logging import get_logger
 from algo_trader.models import Signal, Severity
 from algo_trader.notifications import NotificationService
 
-from algo_trader.utils.config import MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF, S3_BUCKET_NAME, S3_REGION, S3_KEY_PREFIX, MASSIVE_API_KEY
+from algo_trader.utils.config import MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF, S3_BUCKET_NAME, S3_REGION, S3_KEY_PREFIX
 from algo_trader.utils.decorators import retry
+from algo_trader.utils.secrets import get_secret_value
 
 class TradingStrategy:
 
@@ -72,7 +74,7 @@ class TradingStrategy:
             self._initialize_bucket()
 
             today = pd.Timestamp.now(tz='US/Eastern').date()
-            # today = date(2026, 3, 30) # override for testing purposes
+            today = date(2026, 9, 11) # override for testing purposes
 
             nyse = mcal.get_calendar('NYSE')
             schedule = nyse.schedule(today, today)
@@ -113,10 +115,17 @@ class TradingStrategy:
                     from_date = (last_date_in_df + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
                     to_date = latest_session.strftime("%Y-%m-%d")
 
+                    massive_api_key = get_secret_value("MASSIVE_API_KEY")
+                    if not massive_api_key:
+                        raise RuntimeError(
+                            "MASSIVE_API_KEY is missing from Secrets Manager; "
+                            "cannot backfill QQQ price history"
+                        )
+
                     url = (
                         f"https://api.massive.com/v2/aggs/ticker/QQQ/range/1/day"
                         f"/{from_date}/{to_date}"
-                        f"?adjusted=true&apiKey={MASSIVE_API_KEY}"
+                        f"?adjusted=true&apiKey={massive_api_key}"
                     )
                     response = requests.get(url, timeout=10)
                     response.raise_for_status()
