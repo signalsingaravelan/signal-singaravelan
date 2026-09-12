@@ -6,6 +6,9 @@
 # SignalSingaravelanSecrets under the JSON keys named below (see README).
 # Allocation percentages for an enabled account must sum to 100.
 #
+# performance_start_date is optional (ISO YYYY-MM-DD). When set, portfolio
+# performance charts use that funding/start date; when omitted, the chart is skipped.
+#
 # Add, remove, or reconfigure accounts here without touching any code.
 
 accounts:
@@ -15,6 +18,7 @@ accounts:
     paper: false
     api_key_env: ALPACA_API_KEY_PAPER1
     api_secret_env: ALPACA_API_SECRET_PAPER1
+    performance_start_date: "2026-08-24"
     allocations:
       TQQQ: 100
 
@@ -23,6 +27,7 @@ accounts:
     paper: false
     api_key_env: ALPACA_API_KEY_TAXABLE_LETF
     api_secret_env: ALPACA_API_SECRET_TAXABLE_LETF
+    performance_start_date: "2026-08-24"
     allocations:
       TQQQ: 100
 
@@ -31,6 +36,7 @@ accounts:
     paper: false
     api_key_env: ALPACA_API_KEY_TAXABLE_IETF
     api_secret_env: ALPACA_API_SECRET_TAXABLE_IETF
+    performance_start_date: "1901-01-01"
     allocations:
       VTI: 20
       VOO: 20
@@ -43,6 +49,7 @@ accounts:
     paper: false
     api_key_env: ALPACA_API_KEY_ROTH_IRA_VC
     api_secret_env: ALPACA_API_SECRET_ROTH_IRA_VC
+    performance_start_date: "2026-09-09"
     allocations:
       VTI: 20
       VOO: 20
@@ -55,6 +62,7 @@ accounts:
     paper: false
     api_key_env: ALPACA_API_KEY_ROTH_IRA_MS
     api_secret_env: ALPACA_API_SECRET_ROTH_IRA_MS
+    performance_start_date: "1901-01-01"
     allocations:
       VTI: 20
       VOO: 20

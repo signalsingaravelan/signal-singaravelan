@@ -17,7 +17,7 @@ from alpaca.data.timeframe import TimeFrame
 from alpaca.common.exceptions import APIError
 
 from algo_trader.logging import get_logger
-from algo_trader.utils.config import MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF, PERFORMANCE_START_DATE
+from algo_trader.utils.config import MAX_RETRY_ATTEMPTS, RETRY_DELAY, RETRY_BACKOFF
 from algo_trader.utils.decorators import retry
 
 
@@ -34,6 +34,7 @@ class AlpacaClient:
 
     def __init__(self, account):
         self.account_name = account.name
+        self.performance_start_date = account.performance_start_date
         api_key, api_secret = account.resolve_credentials()
         self.trading = TradingClient(api_key, api_secret, paper=account.paper)
         self.data = StockHistoricalDataClient(api_key, api_secret)
@@ -95,11 +96,17 @@ class AlpacaClient:
             raise OrderRejectionError(str(e)) from e
 
     def get_performance(self, notifications_service) -> None:
-        """Get account performance since PERFORMANCE_START_DATE, plot it, and send via Telegram."""
+        """Get account performance since performance_start_date, plot it, and send via Telegram."""
+        if not self.performance_start_date:
+            self.logger.warning(
+                f"[{self.account_name}] performance_start_date not set — skipping performance chart"
+            )
+            return
+
         try:
             history = self.trading.get_portfolio_history(
                 GetPortfolioHistoryRequest(
-                    start=datetime.fromisoformat(PERFORMANCE_START_DATE),
+                    start=datetime.fromisoformat(self.performance_start_date),
                     timeframe="1D",
                 )
             )
@@ -111,7 +118,7 @@ class AlpacaClient:
             dates = [datetime.fromtimestamp(ts) for ts in history.timestamp]
             values = list(history.equity)
 
-            start_date_label = datetime.fromisoformat(PERFORMANCE_START_DATE).strftime("%b %d, %Y")
+            start_date_label = datetime.fromisoformat(self.performance_start_date).strftime("%b %d, %Y")
 
             # Simulate buy and hold using beginning balance
             dates_bh_spy, values_bh_spy = self._get_buy_and_hold_series("SPY", values[0], dates[0])

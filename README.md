@@ -83,6 +83,7 @@ accounts:
     paper: true
     api_key_env: ALPACA_API_KEY_TAXABLE
     api_secret_env: ALPACA_API_SECRET_TAXABLE
+    performance_start_date: "2026-01-15"
     allocations:
       TQQQ: 100
 
@@ -91,6 +92,7 @@ accounts:
     paper: true
     api_key_env: ALPACA_API_KEY_ROTH_IRA
     api_secret_env: ALPACA_API_SECRET_ROTH_IRA
+    performance_start_date: "2025-06-01"
     allocations:
       VTI: 20
       VOO: 20
@@ -102,6 +104,7 @@ accounts:
 - `enabled: false` excludes an account from a run without deleting its config.
 - `paper: true/false` selects Alpaca's paper-trading or live-trading endpoint for that account. **New accounts should stay on `paper: true` until you've verified a few runs.**
 - `allocations` must sum to 100 for any enabled account — the system validates this at startup and refuses to run otherwise.
+- `performance_start_date` (optional, ISO `YYYY-MM-DD`) is the funding/start date used for that account's portfolio performance chart. If omitted, the chart is skipped for that account.
 - `api_key_env` / `api_secret_env` name the JSON keys in Secrets Manager (and the env vars hydrated from them at startup). Adding, removing, or reallocating an account is a YAML edit only; no code changes required.
 
 ### 3. Configure AWS credentials and Secrets Manager

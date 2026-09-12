@@ -21,9 +21,6 @@ S3_BUCKET_NAME = "signal-singaravelan"  # Replace with your S3 bucket name
 S3_REGION = "us-east-1"
 S3_KEY_PREFIX = "trade-history/"  # Optional prefix for organizing files
 
-# Performance Configuration
-PERFORMANCE_START_DATE = ""  # Set to the date the account was funded
-
 # Notification Configuration
 # Email settings (using AWS SES)
 EMAIL_FROM = ""  # Replace with your verified SES email

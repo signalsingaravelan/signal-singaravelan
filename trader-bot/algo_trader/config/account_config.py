@@ -1,8 +1,9 @@
 """Loads and validates the multi-account trading configuration (accounts.yaml)."""
 
 import os
+from datetime import datetime
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import yaml
 
@@ -21,6 +22,7 @@ class AccountConfig:
     api_key_env: str
     api_secret_env: str
     allocations: Dict[str, float] = field(default_factory=dict)
+    performance_start_date: Optional[str] = None
 
     def resolve_credentials(self) -> Tuple[str, str]:
         """Read this account's API key/secret from environment variables."""
@@ -34,6 +36,26 @@ class AccountConfig:
             )
 
         return api_key, api_secret
+
+
+def _parse_performance_start_date(name: str, raw_value, path: str) -> Optional[str]:
+    """Normalize and validate an optional ISO performance start date."""
+    if raw_value is None or raw_value == "":
+        return None
+
+    value = str(raw_value).strip()
+    if not value:
+        return None
+
+    try:
+        datetime.fromisoformat(value)
+    except ValueError as e:
+        raise ValueError(
+            f"Account '{name}' has invalid performance_start_date '{value}' "
+            f"(expected ISO date YYYY-MM-DD) in {path}"
+        ) from e
+
+    return value
 
 
 def load_accounts(path: str = None) -> List[AccountConfig]:
@@ -75,6 +97,10 @@ def load_accounts(path: str = None) -> List[AccountConfig]:
                 f"Account '{name}' must define 'api_key_env' and 'api_secret_env' (in {path})"
             )
 
+        performance_start_date = _parse_performance_start_date(
+            name, raw.get("performance_start_date"), path
+        )
+
         accounts.append(AccountConfig(
             name=name,
             enabled=enabled,
@@ -82,6 +108,7 @@ def load_accounts(path: str = None) -> List[AccountConfig]:
             api_key_env=api_key_env,
             api_secret_env=api_secret_env,
             allocations=allocations,
+            performance_start_date=performance_start_date,
         ))
 
     return accounts

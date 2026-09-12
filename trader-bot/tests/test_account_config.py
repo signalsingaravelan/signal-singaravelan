@@ -38,6 +38,39 @@ def test_load_accounts_parses_valid_config(tmp_path):
     accounts = load_accounts(_write(tmp_path, VALID_YAML))
     assert [a.name for a in accounts] == ["taxable", "roth-ira"]
     assert accounts[0].allocations == {"TQQQ": 100}
+    assert accounts[0].performance_start_date is None
+
+
+def test_performance_start_date_parsed_when_present(tmp_path):
+    yaml_content = """
+accounts:
+  - name: taxable
+    enabled: true
+    paper: true
+    api_key_env: ALPACA_API_KEY_TAXABLE
+    api_secret_env: ALPACA_API_SECRET_TAXABLE
+    performance_start_date: "2026-01-15"
+    allocations:
+      TQQQ: 100
+"""
+    accounts = load_accounts(_write(tmp_path, yaml_content))
+    assert accounts[0].performance_start_date == "2026-01-15"
+
+
+def test_invalid_performance_start_date_raises(tmp_path):
+    yaml_content = """
+accounts:
+  - name: taxable
+    enabled: true
+    paper: true
+    api_key_env: ALPACA_API_KEY_TAXABLE
+    api_secret_env: ALPACA_API_SECRET_TAXABLE
+    performance_start_date: "not-a-date"
+    allocations:
+      TQQQ: 100
+"""
+    with pytest.raises(ValueError, match="invalid performance_start_date"):
+        load_accounts(_write(tmp_path, yaml_content))
 
 
 def test_get_enabled_accounts_filters_disabled(tmp_path):
