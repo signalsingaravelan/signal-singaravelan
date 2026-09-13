@@ -74,7 +74,7 @@ class TradingStrategy:
             self._initialize_bucket()
 
             today = pd.Timestamp.now(tz='US/Eastern').date()
-            today = date(2026, 9, 11) # override for testing purposes
+            # today = date(2026, 9, 11) # override for testing purposes
 
             nyse = mcal.get_calendar('NYSE')
             schedule = nyse.schedule(today, today)
