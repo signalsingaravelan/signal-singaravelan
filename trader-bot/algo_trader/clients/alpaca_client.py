@@ -107,6 +107,7 @@ class AlpacaClient:
             history = self.trading.get_portfolio_history(
                 GetPortfolioHistoryRequest(
                     start=datetime.fromisoformat(self.performance_start_date),
+                    end=datetime.now(),
                     timeframe="1D",
                 )
             )
